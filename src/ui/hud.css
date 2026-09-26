@@ -156,7 +156,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a12; fon
 .icon.food { inset: 12px 10px 10px; border-radius: 45% 45% 40% 40%; background: var(--c); box-shadow: inset -3px -3px 0 rgba(0,0,0,.3), inset 2px 2px 0 rgba(255,255,255,.2); }
 .icon.armor { inset: 9px 11px 8px; border-radius: 3px 3px 10px 10px; background: var(--c); box-shadow: inset -3px -3px 0 rgba(0,0,0,.3), inset 0 3px 0 rgba(255,255,255,.2); }
 .inv-armor { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
-.armor-slots { display: flex; gap: 3px; }
+.armor-slots, .trinket-slots { display: flex; gap: 3px; }
 .slot.armor { cursor: pointer; border-color: #3a2a1a; }
 .slot.armor:hover { border-color: rgba(255,255,255,.5); }
 .armor-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; opacity: .4; letter-spacing: 1px; text-transform: uppercase; }
@@ -190,3 +190,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a12; fon
 .dead { flex-direction: column; gap: 10px; }
 .dead small { font-size: 14px; letter-spacing: 2px; font-weight: 400; color: #e6dcc1; text-shadow: 0 2px 0 #000; }
 .sleep { position: fixed; inset: 0; background: #07060c; pointer-events: none; opacity: 0; display: flex; align-items: center; justify-content: center; font-family: 'Jacquard 24', serif; font-size: 40px; color: #a8c0d9; z-index: 3; }
+.icon.trinket { inset: 12px; border-radius: 50%; background: transparent; border: 4px solid var(--c); box-shadow: 0 0 0 1px rgba(0,0,0,.5), inset 0 0 0 1px rgba(0,0,0,.4); font-size: 0; }
+.slot.trinket { border-color: #2e6860; }
+.move-stats { max-width: 190px; }
+.pip.locked { display: none; }
+.wj.locked { display: none; }
+.wj.air { background: #66c1d6; }
+.wj.air.used { opacity: .25; }

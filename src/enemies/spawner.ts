@@ -24,7 +24,7 @@ const DAY: SpawnEnv = { daylight: 1, night: 0 };
  */
 export class Spawner {
   enabled: boolean = ENEMIES.SPAWN_ENABLED;
-  private timer = 2;
+  private timer: number = ENEMIES.SPAWN_GRACE;
 
   constructor(private readonly rng: () => number = Math.random) {}
 

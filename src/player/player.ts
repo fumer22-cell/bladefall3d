@@ -1,8 +1,17 @@
 import { Vector3 } from 'three';
-import { MOVE, PLAYER } from '../config';
+import { MOVE, PLAYER, UPGRADES } from '../config';
 import type { AABB } from '../world/collision';
 
-export type MoveState = 'ground' | 'air' | 'slide' | 'dash' | 'slam';
+export type MoveState = 'ground' | 'air' | 'slide' | 'dash' | 'slam' | 'wallrun' | 'grapple';
+
+/** Movement unlocked by upgrades. */
+export interface Abilities {
+  dashPips: number;
+  airJumps: number;
+  wallJumps: number;
+  wallRun: boolean;
+  grapple: boolean;
+}
 
 /** Things that happened during a sim step; consumed by camera/HUD/audio each frame. */
 export type MoveEvent =
@@ -16,7 +25,10 @@ export type MoveEvent =
   | { type: 'step'; height: number }
   | { type: 'slamLand'; height: number }
   | { type: 'slamBounce'; bonus: number }
-  | { type: 'wallJump'; nx: number; nz: number };
+  | { type: 'wallJump'; nx: number; nz: number }
+  | { type: 'airJump' }
+  | { type: 'wallRun'; nx: number; nz: number }
+  | { type: 'grapple'; hit: boolean };
 
 export class Player {
   /** Feet center. */
@@ -38,7 +50,18 @@ export class Player {
   wallNZ = 0;
   wallJumpsLeft: number = MOVE.WALL_JUMPS_MAX;
 
+  /** What this player can do (the world sets it from worn trinkets). */
+  abilities: Abilities = { ...UPGRADES.FULL };
+
   dashPips: number = MOVE.DASH_PIPS;
+  airJumpsLeft: number = UPGRADES.FULL.airJumps;
+  /** Wall-run time left this airtime. */
+  wallRunLeft: number = MOVE.WALLRUN_TIME;
+  wallRunCooldown = 0;
+  /** Grapple anchor while hooked. */
+  grappleAnchor: Vector3 | null = null;
+  grappleTime = 0;
+  grappleCooldown = 0;
   dashTimer = 0;
   dashDirX = 0;
   dashDirZ = 0;
@@ -101,7 +124,10 @@ export class Player {
     this.grounded = false;
     this.crouched = false;
     this.airTime = Infinity;
-    this.dashPips = MOVE.DASH_PIPS;
-    this.wallJumpsLeft = MOVE.WALL_JUMPS_MAX;
+    this.dashPips = this.abilities.dashPips;
+    this.wallJumpsLeft = this.abilities.wallJumps;
+    this.airJumpsLeft = this.abilities.airJumps;
+    this.wallRunLeft = MOVE.WALLRUN_TIME;
+    this.grappleAnchor = null;
   }
 }

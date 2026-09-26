@@ -1,8 +1,10 @@
 import { MOVE, PLAYER } from '../config';
 import { clamp, moveToward2 } from '../core/math';
-import { FRICTION, SHAPE } from '../world/blocks';
+import { FRICTION, SHAPE, SOLID } from '../world/blocks';
+import { raycastVoxel } from '../world/raycast';
 import { boxOverlapsSolid, moveBox, sweepAxis, type AABB, type MoveResult } from '../world/collision';
 import type { VoxelQuery } from '../world/world';
+import { Vector3 } from 'three';
 import type { Player } from './player';
 
 /** Movement input for one sim step. forward/right are in [-1, 1]. */
@@ -14,6 +16,9 @@ export interface MoveIntent {
   dashPressed: boolean;
   crouchPressed: boolean;
   crouchHeld: boolean;
+  /** Grappling hook button (optional: absent = not pressed). */
+  grapplePressed?: boolean;
+  grappleHeld?: boolean;
 }
 
 export const NO_INTENT: MoveIntent = {
@@ -49,13 +54,16 @@ export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt
   p.jumpBuffer = input.jumpPressed ? MOVE.JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
   p.iframes = Math.max(0, p.iframes - dt);
   p.slamBounceTimer = Math.max(0, p.slamBounceTimer - dt);
+  p.wallRunCooldown = Math.max(0, p.wallRunCooldown - dt);
+  p.grappleCooldown = Math.max(0, p.grappleCooldown - dt);
   if (p.state !== 'dash') {
-    p.dashPips = Math.min(MOVE.DASH_PIPS, p.dashPips + (dt * p.regenMult) / MOVE.DASH_REGEN_TIME);
+    p.dashPips = Math.min(p.abilities.dashPips, p.dashPips + (dt * p.regenMult) / MOVE.DASH_REGEN_TIME);
   }
   if (p.grounded) p.groundTime += dt;
   else p.airTime += dt;
 
   // --- Input-driven transitions ---
+  if (input.grapplePressed) tryGrapple(p, world);
   if (input.dashPressed && p.dashPips >= 1) startDash(p, wish, world);
   if (input.crouchPressed && !p.grounded && p.state !== 'slam') startSlam(p);
   if (p.grounded && input.crouchHeld && p.state === 'ground') startSlide(p, wish);
@@ -79,7 +87,16 @@ export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt
       break;
     case 'air':
       if (p.inWater) updateSwim(p, wish, input, dt);
-      else updateAir(p, wish, dt);
+      else {
+        updateAir(p, wish, dt);
+        if (canWallRun(p, wish)) startWallRun(p);
+      }
+      break;
+    case 'wallrun':
+      updateWallRun(p, wish, input, dt);
+      break;
+    case 'grapple':
+      updateGrapple(p, wish, input, dt);
       break;
     case 'slide':
       updateSlide(p, wish, input, world, dt);
@@ -117,6 +134,7 @@ export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt
     if (p.state === 'ground' || p.state === 'slide') p.state = 'air';
   }
   probeWalls(p, world);
+  if (p.state === 'wallrun' && (!p.touchingWall || p.grounded)) p.state = p.grounded ? 'ground' : 'air';
 
   if (p.crouched && p.state !== 'slide') tryStand(p, world);
 }
@@ -139,6 +157,7 @@ function computeWish(p: Player, input: MoveIntent): Wish {
 
 function startDash(p: Player, wish: Wish, world: VoxelQuery): void {
   p.dashPips -= 1;
+  p.grappleAnchor = null;
   p.dashDirX = wish.has ? wish.x : wish.fx;
   p.dashDirZ = wish.has ? wish.z : wish.fz;
   p.state = 'dash';
@@ -176,6 +195,15 @@ function startSlide(p: Player, wish: Wish): void {
 }
 
 function tryJump(p: Player, world: VoxelQuery): void {
+  // Jumping while hooked lets go with a hop.
+  if (p.state === 'grapple') {
+    releaseGrapple(p);
+    p.vel.y = Math.max(p.vel.y, MOVE.AIR_JUMP_VELOCITY);
+    p.jumpBuffer = 0;
+    p.events.push({ type: 'airJump' });
+    return;
+  }
+
   const coyote = !p.jumpedSinceGround && p.airTime < MOVE.COYOTE_TIME && p.state !== 'slam';
   if (p.grounded || coyote) {
     let vy: number = MOVE.JUMP_VELOCITY;
@@ -207,6 +235,20 @@ function tryJump(p: Player, world: VoxelQuery): void {
     return;
   }
 
+  // Kick off a wall run: always allowed, keeps the run's speed.
+  if (p.state === 'wallrun') {
+    const nx = p.wallNX, nz = p.wallNZ;
+    p.vel.x += nx * MOVE.WALLRUN_JUMP_PUSH;
+    p.vel.z += nz * MOVE.WALLRUN_JUMP_PUSH;
+    p.vel.y = MOVE.WALLRUN_JUMP_UP;
+    p.jumpCuttable = false;
+    p.state = 'air';
+    p.jumpBuffer = 0;
+    p.wallRunCooldown = 0.3;
+    p.events.push({ type: 'wallJump', nx, nz });
+    return;
+  }
+
   if (p.touchingWall && p.wallJumpsLeft > 0 && p.state !== 'slam') {
     const nx = p.wallNX, nz = p.wallNZ;
     const vn = p.vel.x * nx + p.vel.z * nz;
@@ -220,7 +262,123 @@ function tryJump(p: Player, world: VoxelQuery): void {
     p.state = 'air';
     p.jumpBuffer = 0;
     p.events.push({ type: 'wallJump', nx, nz });
+    return;
   }
+
+  // Air jump (double jump) from upgrades.
+  if (p.airJumpsLeft > 0 && (p.state === 'air' || p.state === 'dash') && !p.inWater) {
+    p.airJumpsLeft--;
+    p.vel.y = MOVE.AIR_JUMP_VELOCITY;
+    p.jumpCuttable = true;
+    p.state = 'air';
+    p.jumpBuffer = 0;
+    p.events.push({ type: 'airJump' });
+  }
+}
+
+// ---------------------------------------------------------------- wall run
+
+function canWallRun(p: Player, wish: Wish): boolean {
+  if (!p.abilities.wallRun || !p.touchingWall || p.wallRunLeft <= 0 || p.wallRunCooldown > 0) return false;
+  if (!wish.has || p.vel.y > 6) return false;
+  const nx = p.wallNX, nz = p.wallNZ;
+  // Moving along the wall, not away from it.
+  const vn = p.vel.x * nx + p.vel.z * nz;
+  const tx = p.vel.x - nx * vn, tz = p.vel.z - nz * vn;
+  const along = Math.hypot(tx, tz);
+  if (along < MOVE.WALLRUN_MIN_SPEED) return false;
+  if (wish.x * nx + wish.z * nz > 0.3) return false;
+  return (wish.x * tx + wish.z * tz) / along > 0.3;
+}
+
+function startWallRun(p: Player): void {
+  p.state = 'wallrun';
+  p.vel.y = Math.max(p.vel.y, 1.5);
+  p.events.push({ type: 'wallRun', nx: p.wallNX, nz: p.wallNZ });
+}
+
+function updateWallRun(p: Player, wish: Wish, input: MoveIntent, dt: number): void {
+  p.wallRunLeft -= dt;
+  const nx = p.wallNX, nz = p.wallNZ;
+  const vn = p.vel.x * nx + p.vel.z * nz;
+  let tx = p.vel.x - nx * vn, tz = p.vel.z - nz * vn;
+  const along = Math.hypot(tx, tz) || 1;
+  tx /= along;
+  tz /= along;
+  const speed = Math.max(along, MOVE.WALLRUN_SPEED * p.speedMult);
+  // Hug the wall so the contact holds.
+  p.vel.x = tx * speed - nx * 1.5;
+  p.vel.z = tz * speed - nz * 1.5;
+  p.vel.y = Math.max(p.vel.y - MOVE.WALLRUN_GRAVITY * dt, -MOVE.WALLRUN_MAX_SLIP);
+  const away = wish.x * nx + wish.z * nz > 0.5;
+  if (p.wallRunLeft <= 0 || !wish.has || away || input.crouchPressed) {
+    p.state = 'air';
+    p.wallRunCooldown = 0.25;
+  }
+}
+
+// ---------------------------------------------------------------- grappling hook
+
+function tryGrapple(p: Player, world: VoxelQuery): void {
+  if (!p.abilities.grapple || p.grappleCooldown > 0) return;
+  if (p.state === 'grapple') {
+    releaseGrapple(p);
+    return;
+  }
+  const eyeY = p.pos.y + PLAYER.EYE_HEIGHT;
+  const cp = Math.cos(p.pitch);
+  const dx = -Math.sin(p.yaw) * cp, dy = Math.sin(p.pitch), dz = -Math.cos(p.yaw) * cp;
+  const hit = raycastVoxel(world, p.pos.x, eyeY, p.pos.z, dx, dy, dz, MOVE.GRAPPLE_RANGE, (id) => SOLID[id] === 1);
+  if (!hit) {
+    p.grappleCooldown = MOVE.GRAPPLE_COOLDOWN * 0.5;
+    p.events.push({ type: 'grapple', hit: false });
+    return;
+  }
+  p.grappleAnchor = new Vector3(
+    hit.x + 0.5 + hit.nx * 0.5,
+    hit.y + 0.5 + hit.ny * 0.5,
+    hit.z + 0.5 + hit.nz * 0.5,
+  );
+  p.grappleTime = 0;
+  p.state = 'grapple';
+  p.grounded = false;
+  if (p.crouched) p.crouched = false;
+  p.events.push({ type: 'grapple', hit: true });
+}
+
+function releaseGrapple(p: Player): void {
+  p.grappleAnchor = null;
+  p.grappleCooldown = MOVE.GRAPPLE_COOLDOWN;
+  if (p.state === 'grapple') p.state = 'air';
+}
+
+function updateGrapple(p: Player, wish: Wish, input: MoveIntent, dt: number): void {
+  const a = p.grappleAnchor;
+  p.grappleTime += dt;
+  if (!a) {
+    p.state = 'air';
+    return;
+  }
+  const cx = p.pos.x, cy = p.pos.y + 1, cz = p.pos.z;
+  const dx = a.x - cx, dy = a.y - cy, dz = a.z - cz;
+  const dist = Math.hypot(dx, dy, dz);
+  if (!input.grappleHeld || dist < MOVE.GRAPPLE_RELEASE_DIST || p.grappleTime > MOVE.GRAPPLE_MAX_TIME) {
+    releaseGrapple(p);
+    // A little lift at the end so you can clear the ledge you pulled to.
+    if (dist < MOVE.GRAPPLE_RELEASE_DIST * 1.5) p.vel.y = Math.max(p.vel.y, 6);
+    return;
+  }
+  const k = (MOVE.GRAPPLE_PULL * dt) / dist;
+  p.vel.x += dx * k;
+  p.vel.y += dy * k;
+  p.vel.z += dz * k;
+  if (wish.has) {
+    p.vel.x += wish.x * MOVE.AIR_ACCEL * 0.25 * dt;
+    p.vel.z += wish.z * MOVE.AIR_ACCEL * 0.25 * dt;
+  }
+  p.vel.y -= MOVE.GRAVITY * MOVE.GRAPPLE_GRAVITY_MULT * dt;
+  const sp = p.vel.length();
+  if (sp > MOVE.GRAPPLE_MAX_SPEED) p.vel.multiplyScalar(MOVE.GRAPPLE_MAX_SPEED / sp);
 }
 
 function updateDash(p: Player, wish: Wish, input: MoveIntent, dt: number): void {
@@ -332,7 +490,9 @@ function updateSlide(p: Player, wish: Wish, input: MoveIntent, world: VoxelQuery
 }
 
 function onLand(p: Player, preVy: number, wish: Wish, input: MoveIntent): void {
-  p.wallJumpsLeft = MOVE.WALL_JUMPS_MAX;
+  p.wallJumpsLeft = p.abilities.wallJumps;
+  p.airJumpsLeft = p.abilities.airJumps;
+  p.wallRunLeft = MOVE.WALLRUN_TIME;
   p.groundTime = 0;
   p.jumpedSinceGround = false;
   p.events.push({ type: 'land', speed: -preVy });
@@ -346,7 +506,7 @@ function onLand(p: Player, preVy: number, wish: Wish, input: MoveIntent): void {
     );
     p.events.push({ type: 'slamLand', height });
     p.state = 'ground';
-  } else if (p.state === 'air') {
+  } else if (p.state === 'air' || p.state === 'wallrun') {
     p.state = 'ground';
   }
   if (p.state === 'ground' && input.crouchHeld) startSlide(p, wish);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MOVE, PLAYER } from '../src/config';
+import { MOVE, PLAYER, UPGRADES } from '../src/config';
 import { Block } from '../src/world/blocks';
 import { DT, flatWorld, playerOnGround, step } from './helpers';
 
@@ -65,6 +65,7 @@ describe('jumping', () => {
   it('does not allow a jump well after coyote time', () => {
     const w = flatWorld();
     const p = playerOnGround(w);
+    p.abilities = { ...UPGRADES.BASE };
     p.teleport(32.5, 20, 32.5);
     step(p, w, {}, 20);
     step(p, w, { jumpPressed: true });
@@ -329,5 +330,79 @@ describe('snappy jumps', () => {
     }
     expect(rising).toBe(false);
     expect(down).toBeLessThan(up);
+  });
+});
+
+describe('movement upgrades', () => {
+  it('base kit: one dash pip, no air jump, no wall jump', () => {
+    const w = flatWorld();
+    w.fill(40, 4, 0, 40, 30, 63, Block.STONE);
+    const p = playerOnGround(w);
+    p.abilities = { ...UPGRADES.BASE };
+    p.teleport(32.5, 4, 32.5);
+    step(p, w, {}, 10);
+    expect(p.dashPips).toBe(1);
+    step(p, w, { jumpPressed: true, jumpHeld: true });
+    step(p, w, { jumpHeld: true }, 20);
+    const vy = p.vel.y;
+    step(p, w, { jumpPressed: true, jumpHeld: true });
+    expect(p.vel.y).toBeLessThan(vy); // no double jump
+  });
+
+  it('air jumps come back on landing', () => {
+    const w = flatWorld();
+    const p = playerOnGround(w);
+    p.abilities = { ...UPGRADES.BASE, airJumps: 2 };
+    p.teleport(32.5, 4, 32.5);
+    step(p, w, {}, 5);
+    step(p, w, { jumpPressed: true, jumpHeld: true });
+    step(p, w, { jumpHeld: true }, 25);
+    step(p, w, { jumpPressed: true, jumpHeld: true });
+    expect(p.vel.y).toBeCloseTo(MOVE.AIR_JUMP_VELOCITY - MOVE.GRAVITY * (1 / 60), 0);
+    expect(p.airJumpsLeft).toBe(1);
+    step(p, w, {}, 200);
+    expect(p.grounded).toBe(true);
+    expect(p.airJumpsLeft).toBe(2);
+  });
+
+  it('runs along a wall, falling slowly', () => {
+    const w = flatWorld();
+    w.fill(36, 4, 0, 36, 40, 63, Block.STONE); // wall on +x side
+    const p = playerOnGround(w, 35.6, 10.5);
+    p.abilities = { ...UPGRADES.FULL };
+    p.yaw = Math.PI; // look +z (along the wall)
+    // Get moving along the wall and jump.
+    step(p, w, { forward: 1 }, 30);
+    step(p, w, { forward: 1, right: -0.3, jumpPressed: true, jumpHeld: true });
+    let ran = false;
+    for (let i = 0; i < 60; i++) {
+      step(p, w, { forward: 1, right: -0.3, jumpHeld: true });
+      if (p.state === 'wallrun') ran = true;
+    }
+    expect(ran).toBe(true);
+    // Wall running for a second loses far less height than a free fall would.
+    expect(p.pos.y).toBeGreaterThan(5);
+  });
+
+  it('grapples toward a block and pulls the player there', () => {
+    const w = flatWorld();
+    w.fill(30, 20, 10, 34, 20, 14, Block.STONE); // a ledge overhead, ahead
+    const p = playerOnGround(w, 32.5, 32.5);
+    p.abilities = { ...UPGRADES.FULL };
+    p.yaw = 0; // look -z
+    p.pitch = Math.atan2(20 - 5.6, 32.5 - 12);
+    step(p, w, { grapplePressed: true, grappleHeld: true });
+    expect(p.state).toBe('grapple');
+    expect(p.grappleAnchor).not.toBeNull();
+    const d0 = p.pos.distanceTo(p.grappleAnchor!);
+    step(p, w, { grappleHeld: true }, 40);
+    expect(p.grappleAnchor === null || p.pos.distanceTo(p.grappleAnchor) < d0 - 8).toBe(true);
+    expect(p.pos.y).toBeGreaterThan(8);
+    // Without the upgrade nothing happens.
+    const q = playerOnGround(w, 20.5, 40.5);
+    q.abilities = { ...UPGRADES.BASE };
+    q.pitch = 0.5;
+    step(q, w, { grapplePressed: true, grappleHeld: true });
+    expect(q.state).not.toBe('grapple');
   });
 });

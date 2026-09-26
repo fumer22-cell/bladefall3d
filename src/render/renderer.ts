@@ -9,6 +9,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { CAMERA, WORLD } from '../config';
+import { loomUniforms, patchTree } from './loom';
 import { PixelPipeline } from './pixelPipeline';
 import { Sky } from './sky';
 
@@ -41,6 +42,7 @@ export class Renderer {
     this.scene.add(this.sun);
     this.gl.autoClear = false;
     this.sky = new Sky(this.scene);
+    this.sky.mesh.userData.noLoom = true;
     this.camera = new PerspectiveCamera(CAMERA.BASE_FOV, window.innerWidth / window.innerHeight, CAMERA.NEAR, CAMERA.FAR);
     this.camera.rotation.order = 'YXZ';
 
@@ -60,6 +62,7 @@ export class Renderer {
   setSkyColor(r: number, g: number, b: number): void {
     (this.scene.background as Color).setRGB(r, g, b, SRGBColorSpace);
     this.scene.fog?.color.setRGB(r, g, b, SRGBColorSpace);
+    this.pixels.setHaze(r, g, b);
   }
 
   /** Dim and tint the entity lights with the time of day (voxels are lit by their own shader). */
@@ -76,6 +79,8 @@ export class Renderer {
 
   /** Render the world, then `overlay` (the first-person viewmodel) on top, through the pixel-art pass. */
   render(overlay?: Scene): void {
+    loomUniforms.uCam.value.copy(this.camera.position);
+    patchTree(this.scene);
     this.pixels.render(this.scene, this.camera, overlay);
   }
 

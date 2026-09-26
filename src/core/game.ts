@@ -3,11 +3,13 @@ import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
 import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, DAYNIGHT, ENEMIES, PARTICLES, PLAYER, SAVE, SIM, SKY, SURVIVAL, TEST_ARENA, WORLD, type Action } from '../config';
+import { CAMERA, COMBAT, DAYNIGHT, ENEMIES, LOOM, PARTICLES, UPGRADES, PLAYER, SAVE, SIM, SKY, SURVIVAL, TEST_ARENA, WORLD, type Action } from '../config';
 import { craft, nearbyStations } from '../items/crafting';
 import { Drops } from '../items/drops';
 import { Inventory } from '../items/inventory';
-import { ITEMS } from '../items/items';
+import { ITEMS, blockDrop } from '../items/items';
+import { FallingTrees } from '../render/fallingTrees';
+import { RopeView } from '../render/ropeView';
 import { Builder, tierName } from '../player/builder';
 import { saveDb } from '../save/db';
 import { editsFromSave, editsToSave, type SaveData } from '../save/serialize';
@@ -22,12 +24,14 @@ import { ChunkRenderer } from '../render/chunkRenderer';
 import { DummyView } from '../render/dummyView';
 import { CrowView, HuskView, type CombatantView } from '../render/enemyViews';
 import { Spawner } from '../enemies/spawner';
+import { Crow } from '../enemies/crow';
 import type { Combatant } from '../combat/combatant';
 import { Particles } from '../render/particles';
 import { ProjectileView } from '../render/projectileView';
 import { Renderer } from '../render/renderer';
 import { setDaylight, setFogColor } from '../render/voxelMaterial';
 import { MemoryView } from '../render/memoryView';
+import { loomUniforms } from '../render/loom';
 import { DayNight } from '../survival/daynight';
 import { Hunger } from '../survival/hunger';
 import { Memory } from '../survival/memory';
@@ -110,6 +114,9 @@ export class Game {
   readonly temperature = new Temperature();
   readonly memory = new Memory();
   private readonly memoryView: MemoryView;
+  private readonly fallingTrees: FallingTrees;
+  private readonly rope: RopeView;
+  private abilitiesVersion = -1;
   /** Hunger, cold, death memories and beds only run in world mode. */
   private readonly survival: boolean;
   /** Bed block the player respawns at. */
@@ -121,6 +128,8 @@ export class Game {
   private deathNote = '';
   /** Last spot the player stood on dry ground (memory orbs go here after falling into the void). */
   private readonly lastSafe = new Vector3();
+  /** Looming warp strength target (toggled with L) and current value. */
+  private loomTarget: number = LOOM.ENABLED ? 1 : 0;
 
   constructor(root: HTMLElement, opts: GameOptions = { mode: 'world' }) {
     this.mode = opts.mode;
@@ -188,7 +197,7 @@ export class Game {
 
     const sp = this.save?.player;
     if (sp) {
-      this.inventory.load(sp.inventory, sp.selected, sp.armor ?? []);
+      this.inventory.load(sp.inventory, sp.selected, sp.armor ?? [], sp.trinkets ?? []);
       if (sp.food !== undefined) this.hunger.food = sp.food;
       if (sp.bodyTemp !== undefined) this.temperature.body = sp.bodyTemp;
       this.bed = sp.bed ?? null;
@@ -212,6 +221,8 @@ export class Game {
     this.dropView = new DropView(this.renderer.scene);
     this.fireflies = new Fireflies(this.renderer.scene, this.world);
     this.memoryView = new MemoryView(this.renderer.scene);
+    this.fallingTrees = new FallingTrees(this.renderer.scene);
+    this.rope = new RopeView(this.renderer.scene);
     this.addDummy(this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z - 6);
     this.respawn();
     if (sp) {
@@ -447,7 +458,13 @@ export class Game {
       fx.blood(e.pos, 50);
       for (const l of e.target.loot()) for (let k = 0; k < l.count; k++) this.drops.spawn(e.pos.x, e.pos.y, e.pos.z, l.item);
     });
-    ev.on('aggro', (e) => play(e.kind === 'crow' ? 'caw' : 'groan'));
+    ev.on('aggro', (e) => {
+      play(e.kind === 'crow' ? 'caw' : 'groan');
+      // Crows are neutral, but attack one and its flock joins in.
+      if (e.kind === 'crow')
+        for (const c of this.combat.enemies)
+          if (c instanceof Crow && Math.hypot(c.pos.x - e.pos.x, c.pos.y - e.pos.y, c.pos.z - e.pos.z) < 26) c.provoke();
+    });
     ev.on('heal', () => {
       this.hud.onHeal();
       this.hud.flash('heal', 0.35);
@@ -474,6 +491,8 @@ export class Game {
       dashPressed: i.wasPressed('dash'),
       crouchPressed: i.wasPressed('crouch'),
       crouchHeld: i.isHeld('crouch'),
+      grapplePressed: i.wasPressed('grapple'),
+      grappleHeld: i.isHeld('grapple'),
     };
   }
 
@@ -498,6 +517,7 @@ export class Game {
       return;
     }
     this.syncHeld();
+    this.syncAbilities();
     this.daynight.update(dt);
     const move = this.moveIntent(combat.inputLocked() || this.sleepTimer > 0);
     const dashed = move.dashPressed && player.dashPips >= 1;
@@ -524,15 +544,29 @@ export class Game {
       [player.box(), ...combat.enemies.filter((d) => d.alive).map((d) => d.hurtbox())],
       this.inventory,
     );
+    // Area mining breaks many blocks at once: merge their drops into one stack per item.
+    const loot = new Map<string, { n: number; x: number; y: number; z: number }>();
+    const addLoot = (item: string | null, x: number, y: number, z: number, n = 1) => {
+      if (!item) return;
+      const l = loot.get(item);
+      if (l) l.n += n;
+      else loot.set(item, { n, x, y, z });
+    };
+    let broke = 0;
     for (const e of b.events) {
       if (e.type === 'broken') {
+        broke++;
         this.particles.burst(
           { x: e.x + 0.5, y: e.y + 0.5, z: e.z + 0.5 },
-          { count: 24, color: COLOR[e.id], speed: 4, life: 0.9, size: 0.12 },
+          { count: broke === 1 ? 24 : 6, color: COLOR[e.id], speed: 4, life: 0.9, size: 0.12 },
         );
-        if (e.drop) this.drops.spawn(e.x + 0.5, e.y + 0.5, e.z + 0.5, e.drop);
-        if (e.id === Block.BERRY_BUSH) for (let k = Math.floor(Math.random() * 2) + 1; k > 0; k--) this.drops.spawn(e.x + 0.5, e.y + 0.5, e.z + 0.5, 'duskberries');
-        play('break');
+        addLoot(e.drop, e.x + 0.5, e.y + 0.5, e.z + 0.5);
+        if (e.id === Block.BERRY_BUSH) addLoot('duskberries', e.x + 0.5, e.y + 0.5, e.z + 0.5, 1 + Math.floor(Math.random() * 2));
+        if (broke === 1) play('break');
+      } else if (e.type === 'fell') {
+        const away = { x: e.x + 0.5 - player.pos.x, z: e.z + 0.5 - player.pos.z };
+        this.fallingTrees.add(e, e.blocks, away.x, away.z);
+        play('fell');
       } else if (e.type === 'placed') {
         this.viewmodel.pulse();
         play('place');
@@ -541,6 +575,28 @@ export class Game {
       } else play('dig');
     }
     b.events.length = 0;
+    for (const [item, l] of loot) this.drops.spawn(l.x, l.y, l.z, item, l.n);
+
+    // Felled trees that hit the ground burst into leaves and drops.
+    for (const t of this.fallingTrees.update(dt)) {
+      const stacks = new Map<string, { n: number; at: Vector3 }>();
+      t.blocks.forEach((blk, i) => {
+        const p = t.positions[i];
+        if (i % 3 === 0) this.particles.burst(p, { count: 5, color: COLOR[blk.id], speed: 3, life: 0.8, size: 0.14 });
+        const item = blockDrop(blk.id);
+        if (!item) return;
+        const s = stacks.get(item);
+        if (s) s.n++;
+        else stacks.set(item, { n: 1, at: p });
+      });
+      for (const [item, s] of stacks) {
+        let y = s.at.y;
+        for (let k = 0; k < 8 && this.world.isSolid(Math.floor(s.at.x), Math.floor(y), Math.floor(s.at.z)); k++) y += 1;
+        this.drops.spawn(s.at.x, y, s.at.z, item, s.n);
+      }
+      this.cameraRig.addTrauma(0.25);
+      play('treeLand');
+    }
 
     const chest = new Vector3(player.pos.x, player.pos.y + 0.9, player.pos.z);
     for (const got of this.drops.update(dt, this.world, chest, this.inventory)) {
@@ -690,6 +746,10 @@ export class Game {
       this.hud.toast(this.spawner.enabled ? 'Enemy spawning on' : 'Enemy spawning off (cleared)');
     }
     if (input.consumePress('dummyReset')) this.placeDummyInFront(4);
+    if (input.consumePress('toggleLoom')) {
+      this.loomTarget = this.loomTarget > 0.5 ? 0 : 1;
+      this.hud.toast(this.loomTarget ? 'Looming far field on' : 'Looming off (true distances)');
+    }
     this.loop.timeScale = (this.slowmo ? SIM.DEBUG_SLOWMO_SCALE : 1) * (combat.deathblow ? COMBAT.DEATHBLOW_TIMESCALE : 1);
 
     // Mouse look is applied per frame for minimum latency; it also steers swing direction.
@@ -702,7 +762,13 @@ export class Game {
     }
     combat.combat.addAim(dx, dy);
 
-    for (const e of player.events) this.cameraRig.handleEvent(e, player);
+    for (const e of player.events) {
+      this.cameraRig.handleEvent(e, player);
+      if (e.type === 'airJump') {
+        play('airJump');
+        this.particles.burst({ x: player.pos.x, y: player.pos.y, z: player.pos.z }, { count: 10, color: 0xe6dcc1, speed: 3, life: 0.4, size: 0.06, gravity: 2 });
+      } else if (e.type === 'grapple') play(e.hit ? 'grapple' : 'feint');
+    }
     player.events.length = 0;
 
     const cam = this.renderer.camera;
@@ -722,6 +788,7 @@ export class Game {
     this.hud.updateItems(this.inventory, builder, this.debugWorldInfo(), frameDt);
     this.dropView.update(this.drops, alpha, frameDt);
     this.memoryView.update(this.memory.orb, frameDt);
+    this.rope.update(player.grappleAnchor, cam, player.state === 'grapple' ? Math.min(1, player.grappleTime * 6) : 0);
     const sleepK = this.sleepTimer > 0 ? 1 - Math.abs(this.sleepTimer / DAYNIGHT.SLEEP_FADE - 0.5) * 2 : 0;
     this.hud.setSleep(Math.min(1, sleepK * 1.6), this.slept ? `Day ${this.daynight.day}` : '…');
     const dn = this.daynight;
@@ -743,7 +810,27 @@ export class Game {
       cam,
     );
     this.chunks.update(this.world, cam.position.x, cam.position.y, cam.position.z);
+    const hfov = Math.atan(Math.tan((cam.fov * DEG) / 2) * cam.aspect);
+    this.chunks.cull(cam.position.x, cam.position.z, player.yaw, player.pitch, hfov);
+    const loom = loomUniforms.uLoom.value;
+    loom.z += Math.sign(this.loomTarget - loom.z) * Math.min(Math.abs(this.loomTarget - loom.z), frameDt / LOOM.TOGGLE_TIME);
     this.renderer.render(this.viewmodel.scene);
+  }
+
+  /** Movement comes from worn trinkets in the world (everything is unlocked in the arena). */
+  private syncAbilities(): void {
+    if (this.inventory.version === this.abilitiesVersion) return;
+    this.abilitiesVersion = this.inventory.version;
+    const p = this.player;
+    const before = p.abilities;
+    p.abilities = this.survival ? this.inventory.abilities() : { ...UPGRADES.FULL };
+    const a = p.abilities;
+    p.dashPips = Math.min(p.dashPips, a.dashPips);
+    p.airJumpsLeft = Math.min(p.airJumpsLeft, a.airJumps);
+    p.wallJumpsLeft = Math.min(p.wallJumpsLeft, a.wallJumps);
+    if (!a.grapple) p.grappleAnchor = null;
+    const gained = a.dashPips > before.dashPips || a.airJumps > before.airJumps || (a.wallRun && !before.wallRun) || (a.grapple && !before.grapple);
+    if (gained && this.ready) play('equip');
   }
 
   /** Point combat and building at whatever is in hand. */
@@ -769,6 +856,7 @@ export class Game {
       ['iron_pickaxe', 1], ['iron_sword', 1], ['iron_greatsword', 1], ['iron_daggers', 1], ['iron_spear', 1], ['iron_gauntlets', 1],
       ['torch', 64], ['planks', 64], ['cobblestone', 64], ['stone_brick', 64], ['workbench', 1], ['forge', 1], ['anvil', 1],
       ['coal', 32], ['copper_ingot', 16], ['iron_ingot', 16], ['stick', 32],
+      ['grappling_hook', 1], ['climbing_claws', 1], ['storm_charm', 1], ['iron_band', 1], ['feather_charm', 1],
     ];
     for (const [id, n] of kit) this.inventory.add(id, n);
     this.hud.toast('Test kit added');
@@ -790,6 +878,7 @@ export class Game {
       selected: this.inventory.selected,
       spawn: [this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z],
       armor: this.inventory.serializeArmor(),
+      trinkets: this.inventory.serializeTrinkets(),
       food: this.hunger.food,
       bodyTemp: this.temperature.body,
       bed: this.bed,

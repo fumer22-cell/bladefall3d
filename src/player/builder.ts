@@ -4,6 +4,7 @@ import { ITEMS, blockDrop, type ItemDef } from '../items/items';
 import { BLOCKS, SHAPE } from '../world/blocks';
 import { boxOverlapsSolid, type AABB } from '../world/collision';
 import { raycastVoxel, type VoxelHit } from '../world/raycast';
+import { areaTargets, findTree, isLog, type BlockAt } from './harvest';
 import type { World } from '../world/world';
 
 export interface BuildIntent {
@@ -15,6 +16,7 @@ export interface BuildIntent {
 export type BuildEvent =
   | { type: 'broken'; x: number; y: number; z: number; id: number; drop: string | null }
   | { type: 'placed'; x: number; y: number; z: number; id: number }
+  | { type: 'fell'; x: number; y: number; z: number; blocks: BlockAt[] }
   | { type: 'mineTick' }
   | { type: 'tooWeak'; needed: number };
 
@@ -89,8 +91,19 @@ export class Builder {
       this.events.push({ type: 'mineTick' });
     }
     if (this.progress >= 1) {
+      // Chop a log and the tree above it comes down; pickaxes also take the natural blocks around.
+      const tree = isLog(t.id) ? findTree(world, t.x, t.y, t.z) : [];
+      const area = held?.tool && !isLog(t.id) ? areaTargets(world, t, held.tool) : [];
       world.setBlock(t.x, t.y, t.z, 0);
       this.events.push({ type: 'broken', x: t.x, y: t.y, z: t.z, id: t.id, drop: blockDrop(t.id) });
+      for (const b of area) {
+        world.setBlock(b.x, b.y, b.z, 0);
+        this.events.push({ type: 'broken', x: b.x, y: b.y, z: b.z, id: b.id, drop: blockDrop(b.id) });
+      }
+      if (tree.length) {
+        for (const b of tree) world.setBlock(b.x, b.y, b.z, 0);
+        this.events.push({ type: 'fell', x: t.x, y: t.y, z: t.z, blocks: tree });
+      }
       this.progress = 0;
       this.target = null;
     }

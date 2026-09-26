@@ -102,6 +102,34 @@ export const MOVE = {
   /** Max fall speed while pushing into a wall. */
   WALL_SLIDE_MAX_FALL: 5,
 
+  // --- Air jump (from upgrades) ---
+  AIR_JUMP_VELOCITY: 12,
+
+  // --- Wall run (from upgrades) ---
+  /** Need at least this much speed along a wall to start running on it. */
+  WALLRUN_MIN_SPEED: 6,
+  /** Speed held along the wall while running. */
+  WALLRUN_SPEED: 13,
+  /** Seconds of wall running per jump off the ground. */
+  WALLRUN_TIME: 1.4,
+  /** Gravity while wall running (m/s²) and the fastest you slip down. */
+  WALLRUN_GRAVITY: 7,
+  WALLRUN_MAX_SLIP: 3,
+  WALLRUN_JUMP_PUSH: 10,
+  WALLRUN_JUMP_UP: 12.5,
+  /** Camera roll (degrees) while wall running. */
+  WALLRUN_TILT: 9,
+
+  // --- Grappling hook (from upgrades) ---
+  GRAPPLE_RANGE: 36,
+  GRAPPLE_PULL: 75,
+  GRAPPLE_MAX_SPEED: 30,
+  GRAPPLE_GRAVITY_MULT: 0.3,
+  /** Let go automatically this close to the anchor (m) or after this long (s). */
+  GRAPPLE_RELEASE_DIST: 2.2,
+  GRAPPLE_MAX_TIME: 2.4,
+  GRAPPLE_COOLDOWN: 0.45,
+
   // --- Water ---
   WATER_GRAVITY_MULT: 0.3,
   WATER_MAX_SINK: 3,
@@ -165,7 +193,7 @@ export const WORLD = {
   /** World seed. 0 = random each load. */
   SEED: 1337,
   /** Columns loaded around the player (radius, in chunks). */
-  RENDER_DISTANCE: 7,
+  RENDER_DISTANCE: 10,
   /** Columns are unloaded this many chunks beyond the render distance. */
   UNLOAD_MARGIN: 2,
   /** Background work limits. */
@@ -182,6 +210,46 @@ export const WORLD = {
 } as const;
 
 /** Pixel-art presentation: low-res render + palette snapping with ordered dithering. */
+/**
+ * "Looming" far field: past BOUNDARY metres the world is pulled toward you horizontally while
+ * keeping its real height, f(r) = D + S·ln(1 + (r − D)/S), so distant cliffs tower over you. The
+ * pulled-in zone is drawn as a flatter, painted backdrop (coarse pixels, banded light, haze, rim).
+ */
+/**
+ * Movement you start with in a world, and the most trinkets can add. The arena (and a fresh
+ * Player) has everything, for testing.
+ */
+export const UPGRADES = {
+  BASE: { dashPips: 1, airJumps: 0, wallJumps: 0, wallRun: false, grapple: false },
+  FULL: { dashPips: 3, airJumps: 1, wallJumps: 3, wallRun: true, grapple: true },
+  /** Hard caps however many trinkets stack. */
+  MAX_DASH_PIPS: 5,
+  MAX_AIR_JUMPS: 3,
+  TRINKET_SLOTS: 3,
+} as const;
+
+export const LOOM = {
+  ENABLED: true,
+  /** Distance (m) where the warp begins; everything nearer is untouched. */
+  BOUNDARY: 52,
+  /** Softness (m): larger = gentler compression. */
+  SOFTNESS: 60,
+  /** Seconds to blend when toggled. */
+  TOGGLE_TIME: 0.7,
+  /** Painted backdrop in the warped zone. */
+  PAINT: true,
+  /** Painted pixel size, in low-res pixels. */
+  PAINT_BLOCK: 2,
+  /** Luminance bands in the painted zone. */
+  PAINT_LEVELS: 6,
+  /** Haze mixed in per depth band (0..1). */
+  PAINT_HAZE: 0.1,
+  /** Rim light where land meets sky (0..1). */
+  PAINT_RIM: 0.35,
+  /** Fog uses this mix of warped (1) and true (0) distance. */
+  FOG_WARPED: 0.75,
+} as const;
+
 export const PIXEL = {
   /** Internal render height in pixels (rounded to an integer upscale of the window). */
   TARGET_HEIGHT: 540,
@@ -239,15 +307,23 @@ export const BUILD = {
   /** Seconds between placements while holding place. */
   PLACE_REPEAT: 0.22,
   /** Mining speed with bare hands (block hardness is in seconds at speed 1). */
-  HAND_SPEED: 1,
+  HAND_SPEED: 2.2,
+  /** Felling a tree takes the whole tree: at most this many logs / leaves. */
+  TREE_MAX_LOGS: 80,
+  TREE_MAX_LEAVES: 500,
+  /** Leaves this far (blocks) from the trunk come down with it. */
+  TREE_LEAF_REACH: 5,
+  /** Seconds a felled tree takes to topple. */
+  TREE_FALL_TIME: 0.9,
 } as const;
 
 /** Tool/weapon material tiers. `tier` gates which blocks a pickaxe can mine. */
 export const TIERS = {
-  HAND: { tier: 0, mineSpeed: 1 },
-  WOOD: { tier: 1, mineSpeed: 2 },
-  COPPER: { tier: 2, mineSpeed: 3 },
-  IRON: { tier: 3, mineSpeed: 4.5 },
+  /** `area`: [radius, depth] of natural blocks broken at once (a 3×3 face = radius 1). */
+  HAND: { tier: 0, mineSpeed: 1, area: [0, 1] },
+  WOOD: { tier: 1, mineSpeed: 2.2, area: [1, 1] },
+  COPPER: { tier: 2, mineSpeed: 3.2, area: [1, 2] },
+  IRON: { tier: 3, mineSpeed: 4.5, area: [2, 2] },
   /** Weapon damage & posture multipliers per material. */
   WEAPON_MULT: { RUSTY: 0.8, COPPER: 1.0, IRON: 1.35 },
 } as const;
@@ -259,9 +335,9 @@ export const INVENTORY = {
   /** Crafting stations count if they're within this many blocks of you. */
   STATION_RADIUS: 4,
   /** Dropped items fly to you inside this radius and are picked up inside PICKUP_RADIUS. */
-  MAGNET_RADIUS: 3.5,
+  MAGNET_RADIUS: 6,
   PICKUP_RADIUS: 1.2,
-  MAGNET_SPEED: 12,
+  MAGNET_SPEED: 18,
   /** Dropped items despawn after this long (s). */
   DROP_LIFETIME: 300,
 } as const;
@@ -586,15 +662,17 @@ export const DUMMY = {
 export const ENEMIES = {
   SPAWN_ENABLED: true,
   /** Seconds between spawn attempts. */
-  SPAWN_INTERVAL: 1.2,
+  SPAWN_INTERVAL: 4,
+  /** No wild spawns for this long after entering a world. */
+  SPAWN_GRACE: 45,
   SPAWN_MIN_DIST: 22,
   SPAWN_MAX_DIST: 46,
   DESPAWN_DIST: 90,
-  MAX_HUSKS: 7,
-  MAX_CROWS: 3,
+  MAX_HUSKS: 3,
+  MAX_CROWS: 2,
   /** At night Husks roam the surface too: higher cap, faster spawning, stronger "nightborn" Husks. */
-  MAX_HUSKS_NIGHT: 11,
-  NIGHT_SPAWN_INTERVAL: 0.8,
+  MAX_HUSKS_NIGHT: 6,
+  NIGHT_SPAWN_INTERVAL: 2.5,
   MAX_CROWS_NIGHT: 1,
   NIGHTBORN_HEALTH_MULT: 1.4,
   NIGHTBORN_DAMAGE_MULT: 1.25,
@@ -723,6 +801,8 @@ export const KEYS = {
   dummyMode: ['KeyG'],
   dummyReset: ['KeyH'],
   toggleSpawns: ['KeyP'],
+  toggleLoom: ['KeyL'],
+  grapple: ['KeyV', 'Mouse1'],
   reset: ['KeyR'],
   debug: ['F3'],
   slowmo: ['KeyT'],

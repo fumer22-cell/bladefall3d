@@ -1,4 +1,5 @@
-import { INVENTORY } from '../config';
+import { INVENTORY, UPGRADES } from '../config';
+import type { Abilities } from '../player/player';
 import { ITEMS } from './items';
 
 export interface Stack {
@@ -11,6 +12,8 @@ export class Inventory {
   readonly slots: (Stack | null)[];
   /** Worn armor: head, body, legs. */
   readonly armor: (Stack | null)[] = [null, null, null];
+  /** Worn trinkets (movement upgrades). */
+  readonly trinkets: (Stack | null)[] = new Array(UPGRADES.TRINKET_SLOTS).fill(null);
   selected = 0;
   /** Bumped on every change so UIs can re-render lazily. */
   version = 0;
@@ -123,9 +126,53 @@ export class Inventory {
     return worn;
   }
 
-  /** Put on the armor piece in slot i (swapping out what's worn). Returns false if it isn't armor. */
+  /** Click on a trinket slot: only trinkets fit. Returns the new cursor. */
+  clickTrinket(slot: number, cursor: Stack | null): Stack | null {
+    if (cursor && !ITEMS[cursor.item]?.trinket) return cursor;
+    const worn = this.trinkets[slot];
+    this.trinkets[slot] = cursor;
+    this.version++;
+    return worn;
+  }
+
+  /** Take a trinket off into the first free slot. */
+  unequipTrinket(slot: number): void {
+    const worn = this.trinkets[slot];
+    const free = this.slots.indexOf(null);
+    if (!worn || free < 0) return;
+    this.slots[free] = worn;
+    this.trinkets[slot] = null;
+    this.version++;
+  }
+
+  /** Movement: the base kit plus everything worn trinkets add. */
+  abilities(): Abilities {
+    const a: Abilities = { ...UPGRADES.BASE };
+    for (const t of this.trinkets) {
+      const d = t ? ITEMS[t.item]?.trinket : undefined;
+      if (!d) continue;
+      a.dashPips += d.dashPips ?? 0;
+      a.airJumps += d.airJumps ?? 0;
+      a.wallJumps += d.wallJumps ?? 0;
+      a.wallRun ||= !!d.wallRun;
+      a.grapple ||= !!d.grapple;
+    }
+    a.dashPips = Math.min(UPGRADES.MAX_DASH_PIPS, a.dashPips);
+    a.airJumps = Math.min(UPGRADES.MAX_AIR_JUMPS, a.airJumps);
+    return a;
+  }
+
+  /** Put on the armor piece or trinket in slot i (swapping out what's worn). Returns false if it isn't wearable. */
   equip(i: number): boolean {
     const s = this.slots[i];
+    if (s && ITEMS[s.item]?.trinket) {
+      let k = this.trinkets.indexOf(null);
+      if (k < 0) k = 0;
+      this.slots[i] = this.trinkets[k];
+      this.trinkets[k] = s;
+      this.version++;
+      return true;
+    }
     const a = s ? ITEMS[s.item]?.armor : undefined;
     if (!s || !a) return false;
     this.slots[i] = this.armor[a.slot];
@@ -177,7 +224,7 @@ export class Inventory {
   quickMove(i: number): void {
     const s = this.slots[i];
     if (!s) return;
-    if (ITEMS[s.item]?.armor && this.equip(i)) return;
+    if ((ITEMS[s.item]?.armor || ITEMS[s.item]?.trinket) && this.equip(i)) return;
     const toHotbar = i >= INVENTORY.HOTBAR;
     const [lo, hi] = toHotbar ? [0, INVENTORY.HOTBAR] : [INVENTORY.HOTBAR, this.slots.length];
     const max = ITEMS[s.item]?.maxStack ?? INVENTORY.MAX_STACK;
@@ -206,10 +253,15 @@ export class Inventory {
     return this.armor.map((s) => (s ? { ...s } : null));
   }
 
-  load(data: (Stack | null)[], selected = 0, armor: (Stack | null)[] = []): void {
+  serializeTrinkets(): (Stack | null)[] {
+    return this.trinkets.map((s) => (s ? { ...s } : null));
+  }
+
+  load(data: (Stack | null)[], selected = 0, armor: (Stack | null)[] = [], trinkets: (Stack | null)[] = []): void {
     const ok = (s: Stack | null | undefined) => (s && ITEMS[s.item] && s.count > 0 ? { item: s.item, count: s.count } : null);
     for (let i = 0; i < this.slots.length; i++) this.slots[i] = ok(data[i]);
     for (let i = 0; i < 3; i++) this.armor[i] = ok(armor[i]);
+    for (let i = 0; i < this.trinkets.length; i++) this.trinkets[i] = ok(trinkets[i]);
     this.selected = selected;
     this.version++;
   }

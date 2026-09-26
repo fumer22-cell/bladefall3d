@@ -203,7 +203,7 @@ describe('Night spawns', () => {
     const count = (env: { daylight: number; night: number }) => {
       const s = new Spawner(() => 0.3);
       let husks = 0;
-      for (let i = 0; i < 20; i++)
+      for (let i = 0; i < 60; i++)
         husks += s.update(2, w, new Vector3(32, 4, 32), [], new Set(), env).filter((e) => e.kind === 'husk').length;
       return husks;
     };

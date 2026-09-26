@@ -59,5 +59,20 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   night. Head/body/legs armor slots (feather, copper, iron) reduce enemy damage and add warmth. The game now
   pauses while the pause screen is up.
 
+- **Looming far field, faster gathering, movement upgrades:**
+  - *Looming:* past ~50 m the world is pulled toward you horizontally while keeping its real height
+    (f(r) = D + S·ln(1 + (r − D)/S), in every world shader), so distant cliffs tower over you; that zone is drawn as
+    a painted backdrop (coarser pixels, banded light, haze steps, a rim of light on the skyline). View distance is
+    up to 10 chunks. **L** toggles it; tune `LOOM` in `config.ts`.
+  - *Gathering:* mining is faster; pickaxes break a patch of natural blocks at once (wood 3×3, copper 3×3×2,
+    iron 5×5×2, never player-built blocks); chopping any log fells the whole tree above it, which topples
+    and bursts into drops. Drops fly to you from farther away.
+  - *Enemies:* far fewer (a 45 s grace period, then 3 Husks by day / 6 at night, 2 Crows); Crows are neutral until
+    you hit one, then its flock joins in.
+  - *Movement upgrades:* a world starts you with 1 dash and no air jump, wall jump, wall run or grapple.
+    Three trinket slots (inventory) unlock them: Feather Charm (+1 air jump), Copper Band (+1 dash), Climbing
+    Claws (wall run + 3 wall jumps), Iron Band (+2 dashes), Storm Charm (+1 air jump, +1 dash), Grappling Hook
+    (**V** or middle mouse). The arena has everything unlocked.
+
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

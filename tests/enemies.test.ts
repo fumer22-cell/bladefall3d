@@ -71,11 +71,19 @@ describe('Husk', () => {
 });
 
 describe('Crow', () => {
-  it('circles above the player and spits', () => {
+  it('is neutral until provoked, then circles above the player and spits', () => {
     const w = flatWorld();
     const c = new Crow(20.5, 12, 20.5, () => 0.9);
     const player = view(30.5, 4, 30.5);
     let shot = false;
+    for (let i = 0; i < 60 * 10 && !shot; i++) {
+      c.update(DT, w, player);
+      if (c.events.some((e) => e.type === 'shoot')) shot = true;
+      c.events.length = 0;
+    }
+    expect(shot).toBe(false);
+    expect(c.provoked).toBe(false);
+    c.provoke();
     for (let i = 0; i < 60 * 10 && !shot; i++) {
       c.update(DT, w, player);
       if (c.events.some((e) => e.type === 'shoot')) shot = true;
@@ -128,7 +136,7 @@ describe('Spawner', () => {
     const s = new Spawner(() => 0.3);
     const enemies = [] as ReturnType<Spawner['update']>;
     let spawned = 0;
-    for (let i = 0; i < 20; i++) spawned += s.update(ENEMIES.SPAWN_INTERVAL, w, new Vector3(32, 4, 32), enemies, new Set()).length;
+    for (let i = 0; i < 40; i++) spawned += s.update(ENEMIES.SPAWN_INTERVAL, w, new Vector3(32, 4, 32), enemies, new Set()).length;
     expect(spawned).toBeGreaterThan(0);
   });
 });

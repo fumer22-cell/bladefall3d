@@ -120,9 +120,37 @@ export class ChunkRenderer {
     mesh.position.set(cx * CS, cy * CS, cz * CS);
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
+    // The looming warp moves far geometry, so three's frustum test would be wrong; `cull()` does
+    // a horizontal-only test instead (the warp keeps horizontal directions).
+    mesh.frustumCulled = false;
     if (mat.transparent) mesh.renderOrder = 1;
     this.scene.add(mesh);
     return mesh;
+  }
+
+  /**
+   * Hide chunks outside the horizontal field of view. The warp only changes distances, never the
+   * horizontal direction to a point, so a yaw test stays exact; looking steeply up or down shows
+   * everything around.
+   */
+  cull(camX: number, camZ: number, yaw: number, pitch: number, hfovHalf: number): void {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const all = Math.abs(pitch) > 0.75;
+    const cosLimit = Math.cos(Math.min(Math.PI, hfovHalf + 0.15));
+    for (const [id, m] of this.meshes) {
+      const [cx, , cz] = decodeChunkId(id);
+      const dx = cx * CS + 8 - camX, dz = cz * CS + 8 - camZ;
+      const d = Math.hypot(dx, dz);
+      // A chunk's half-diagonal (~11.3 m) widens the allowed angle up close.
+      let visible = all || d < 24;
+      if (!visible) {
+        const cos = (dx * fx + dz * fz) / d;
+        const widen = Math.asin(Math.min(1, 12 / d));
+        visible = cos >= Math.cos(Math.min(Math.PI, Math.acos(cosLimit) + widen));
+      }
+      if (m.opaque) m.opaque.visible = visible;
+      if (m.water) m.water.visible = visible;
+    }
   }
 
   private dispose(id: number): void {

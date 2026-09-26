@@ -62,12 +62,19 @@ export class CameraRig {
     if (p.state === 'dash') fovTarget += CAMERA.DASH_FOV_KICK;
     else if (p.state === 'slide') fovTarget += CAMERA.SLIDE_FOV_KICK;
     else if (p.state === 'slam') fovTarget += CAMERA.SLAM_FOV_KICK;
+    else if (p.state === 'grapple') fovTarget += CAMERA.DASH_FOV_KICK * 0.5;
     fovTarget -= zoom;
     this.fov = damp(this.fov, fovTarget, CAMERA.FOV_BLEND_RATE, dt);
 
     // Roll.
     let rollTarget = -strafe * CAMERA.STRAFE_TILT;
     if (p.state === 'slide') rollTarget += CAMERA.SLIDE_TILT;
+    if (p.state === 'wallrun') {
+      // Lean away from the wall while running on it.
+      const side = -(p.wallNX * Math.cos(p.yaw) - p.wallNZ * Math.sin(p.yaw));
+      rollTarget += side * MOVE.WALLRUN_TILT;
+    }
+
     this.roll = damp(this.roll, rollTarget, CAMERA.ROLL_BLEND_RATE, dt);
     this.tiltKick = damp(this.tiltKick, 0, CAMERA.TILT_KICK_DECAY, dt);
 

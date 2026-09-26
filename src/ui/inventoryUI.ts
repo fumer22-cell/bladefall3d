@@ -1,7 +1,7 @@
 import { INVENTORY } from '../config';
 import { RECIPES, canCraft, type Recipe, type Station } from '../items/crafting';
 import type { Inventory, Stack } from '../items/inventory';
-import { ARMOR_SLOT_NAMES } from '../items/items';
+import { ARMOR_SLOT_NAMES, ITEMS } from '../items/items';
 import { itemName, stackHTML } from './itemIcon';
 
 const STATION_NAMES: Record<Station, string> = { hand: 'Hands', campfire: 'Campfire', workbench: 'Workbench', forge: 'Forge', anvil: 'Anvil' };
@@ -16,6 +16,8 @@ export class InventoryUI {
   private readonly slotEls: HTMLDivElement[] = [];
   private readonly armorEls: HTMLDivElement[] = [];
   private readonly armorStats: HTMLDivElement;
+  private readonly trinketEls: HTMLDivElement[] = [];
+  private readonly moveStats: HTMLDivElement;
   private readonly recipeList: HTMLDivElement;
   private readonly stationLine: HTMLDivElement;
   private readonly cursorEl: HTMLDivElement;
@@ -41,6 +43,7 @@ export class InventoryUI {
         <div class="inv-left">
           <h2>Inventory</h2>
           <div class="inv-armor"><div class="armor-slots"></div><div class="armor-stats"></div></div>
+          <div class="inv-armor"><div class="trinket-slots"></div><div class="armor-stats move-stats"></div></div>
           <div class="inv-grid backpack"></div>
           <div class="inv-grid hotbar-row"></div>
           <p class="inv-help">Click: pick up / place · Right-click: half · Shift-click: move to hotbar/backpack, or wear armor · E, Tab or Esc: close</p>
@@ -72,6 +75,20 @@ export class InventoryUI {
       });
       armorRow.appendChild(el);
       this.armorEls.push(el);
+    });
+    this.moveStats = this.root.querySelector('.move-stats')!;
+    const trinketRow = this.root.querySelector('.trinket-slots')!;
+    this.inv.trinkets.forEach((_, i) => {
+      const el = document.createElement('div');
+      el.className = 'slot armor trinket';
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (e.shiftKey && !this.cursor) this.inv.unequipTrinket(i);
+        else this.cursor = this.inv.clickTrinket(i, this.cursor);
+        this.render();
+      });
+      trinketRow.appendChild(el);
+      this.trinketEls.push(el);
     });
     const backpack = this.root.querySelector('.backpack')!;
     const hotbar = this.root.querySelector('.hotbar-row')!;
@@ -145,7 +162,9 @@ export class InventoryUI {
   private render(): void {
     this.slotEls.forEach((el, i) => {
       el.innerHTML = stackHTML(this.inv.slots[i]);
-      el.title = this.inv.slots[i] ? itemName(this.inv.slots[i]!.item) : '';
+      const st = this.inv.slots[i];
+      const desc = st ? ITEMS[st.item]?.trinket?.desc : undefined;
+      el.title = st ? itemName(st.item) + (desc ? `: ${desc}` : '') : '';
       el.classList.toggle('sel', i === this.inv.selected);
     });
     this.armorEls.forEach((el, i) => {
@@ -153,6 +172,16 @@ export class InventoryUI {
       el.innerHTML = a ? stackHTML(a) : `<span class="armor-label">${ARMOR_SLOT_NAMES[i]}</span>`;
       el.title = a ? itemName(a.item) : `${ARMOR_SLOT_NAMES[i]} armor`;
     });
+    this.trinketEls.forEach((el, i) => {
+      const t = this.inv.trinkets[i];
+      el.innerHTML = t ? stackHTML(t) : '<span class="armor-label">Trinket</span>';
+      el.title = t ? `${itemName(t.item)}: ${ITEMS[t.item]?.trinket?.desc ?? ''}` : 'Trinket: rings and charms unlock movement';
+    });
+    const ab = this.inv.abilities();
+    const moves = [`Dashes <b>${ab.dashPips}</b>`, `Air jumps <b>${ab.airJumps}</b>`];
+    if (ab.wallRun) moves.push('<b>Wall run</b>');
+    if (ab.grapple) moves.push('<b>Grapple</b>');
+    this.moveStats.innerHTML = moves.join(' · ');
     this.armorStats.innerHTML = `Armor <b>${Math.round(this.inv.defense() * 100)}%</b><br>Warmth <b>+${this.inv.warmth()}°</b>`;
     this.cursorEl.innerHTML = stackHTML(this.cursor);
     this.cursorEl.hidden = !this.cursor;

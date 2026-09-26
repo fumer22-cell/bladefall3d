@@ -7,9 +7,10 @@ import { EnemyBase } from './enemyBase';
 const C = ENEMIES.CROW;
 
 /**
- * Carrion Crow: circles above the player and spits parryable orbs (perfect-parry them back for
- * double damage), sometimes diving in for a quick peck. When its posture breaks it drops out of
- * the sky and can be finished with a deathblow.
+ * Carrion Crow: neutral until provoked. It drifts high over the land; hit it (or one of its flock)
+ * and it circles above the player spitting parryable orbs (perfect-parry them back for double
+ * damage), sometimes diving in for a quick peck. When its posture breaks it drops out of the sky
+ * and can be finished with a deathblow. It loses interest if you get far enough away.
  */
 export class Crow extends EnemyBase {
   readonly kind = 'crow';
@@ -44,10 +45,7 @@ export class Crow extends EnemyBase {
     const px = player.pos.x, py = player.pos.y, pz = player.pos.z;
     const dist = Math.hypot(px - this.pos.x, pz - this.pos.z);
     if (this.events.some((e) => e.type === 'aggro')) this.aggro = true;
-    if (!this.aggro && dist < C.AGGRO_RANGE) {
-      this.aggro = true;
-      this.events.push({ type: 'aggro' });
-    }
+    if (this.aggro && dist > C.AGGRO_RANGE * 1.6) this.aggro = false;
 
     let tx = this.pos.x, ty = this.pos.y, tz = this.pos.z;
     let speed: number = C.SPEED;
@@ -127,6 +125,17 @@ export class Crow extends EnemyBase {
     if (this.phase !== 'dive' && (ahead(0.4) || world.isSolid(Math.floor(this.pos.x), Math.floor(this.pos.y - 1.5), Math.floor(this.pos.z)))) this.vel.y += 30 * dt;
     this.faceToward(this.phase === 'idle' || this.phase === 'climb' ? this.pos.x + this.vel.x : px, this.phase === 'idle' || this.phase === 'climb' ? this.pos.z + this.vel.z : pz, dt, C.TURN_RATE);
     this.physics(dt, world, false);
+  }
+
+  get provoked(): boolean {
+    return this.aggro;
+  }
+
+  /** Another crow of the flock was attacked. */
+  provoke(): void {
+    if (this.aggro || !this.alive) return;
+    this.aggro = true;
+    this.events.push({ type: 'aggro' });
   }
 
   private canSee(world: VoxelQuery, player: PlayerView): boolean {

@@ -28,7 +28,12 @@ export type SfxName =
   | 'caw'
   | 'eat'
   | 'memory'
-  | 'sleep';
+  | 'sleep'
+  | 'fell'
+  | 'treeLand'
+  | 'grapple'
+  | 'airJump'
+  | 'equip';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -182,6 +187,24 @@ export function play(name: SfxName): void {
     case 'memory':
       tone('sine', 523, 0.12, 0.5, 784);
       tone('sine', 784, 0.08, 0.7, 1046, 0.12);
+      break;
+    case 'fell':
+      noise('lowpass', 500, 1, 0.25, 0.5, 120);
+      tone('triangle', 110, 0.12, 0.6, 70);
+      break;
+    case 'treeLand':
+      noise('lowpass', 300, 1, 0.45, 0.6, 60);
+      noise('bandpass', 1800, 1, 0.12, 0.4);
+      break;
+    case 'grapple':
+      noise('highpass', 2500, 1, 0.12, 0.12);
+      tone('square', 900, 0.05, 0.1, 500);
+      break;
+    case 'airJump':
+      noise('bandpass', 1200, 1.5, 0.12, 0.18, 400);
+      break;
+    case 'equip':
+      tone('triangle', 660, 0.08, 0.15, 990);
       break;
     case 'sleep':
       tone('sine', 330, 0.08, 1.2, 220);

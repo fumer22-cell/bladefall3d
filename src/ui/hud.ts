@@ -1,5 +1,5 @@
 import { Vector3, type PerspectiveCamera } from 'three';
-import { COMBAT, INVENTORY, MOVE } from '../config';
+import { COMBAT, INVENTORY, MOVE, UPGRADES } from '../config';
 import { DEG } from '../core/math';
 import type { CombatSystem } from '../combat/combatSystem';
 import { DUMMY_MODE_LABELS, type Dummy } from '../combat/trainingDummy';
@@ -19,7 +19,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
 const CONTROLS: [string, string][] = [
   ['WASD / Mouse', 'Move / look'],
   ['Space', 'Jump / wall jump (3 max)'],
-  ['Shift', 'Dash (i-frames)'],
+  ['Shift', 'Dash (i-frames). Extra dashes, air jumps, wall runs and a grappling hook (V / middle mouse) come from trinkets'],
   ['C', 'Slide (ground) / ground slam (air)'],
   ['LMB tap / hold', 'Light / heavy attack'],
   ['Mouse during windup', '← → slash, ↑ overhead, ↓ stab'],
@@ -31,6 +31,7 @@ const CONTROLS: [string, string][] = [
   ['Hold RMB with food', 'Eat'],
   ['F on a bed', 'Sleep through the night / set respawn'],
   ['G / H', 'Dummy mode / move dummy in front of you'],
+  ['L', 'Toggle the looming far field'],
   ['R / T / F3', 'Respawn / slow-mo / debug (K in debug: test kit)'],
 ];
 
@@ -61,6 +62,7 @@ interface TargetEl {
 export class Hud {
   private readonly pips: HTMLDivElement[] = [];
   private readonly wallJumps: HTMLDivElement[] = [];
+  private readonly airJumps: HTMLDivElement[] = [];
   private readonly speed: HTMLDivElement;
   private readonly debugEl: HTMLDivElement;
   private readonly slowmo: HTMLDivElement;
@@ -122,8 +124,9 @@ export class Hud {
     this.speed = el('div', 'speed', bottom);
     const wj = el('div', 'walljumps', bottom);
     for (let i = 0; i < MOVE.WALL_JUMPS_MAX; i++) this.wallJumps.push(el('div', 'wj', wj));
+    for (let i = 0; i < UPGRADES.MAX_AIR_JUMPS; i++) this.airJumps.push(el('div', 'wj air', wj));
     const pips = el('div', 'pips', bottom);
-    for (let i = 0; i < MOVE.DASH_PIPS; i++) {
+    for (let i = 0; i < UPGRADES.MAX_DASH_PIPS; i++) {
       const pip = el('div', 'pip', pips);
       el('div', '', pip);
       this.pips.push(pip);
@@ -322,8 +325,16 @@ export class Hud {
       const fill = Math.min(1, Math.max(0, p.dashPips - i));
       (this.pips[i].firstChild as HTMLDivElement).style.width = `${fill * 100}%`;
       this.pips[i].classList.toggle('full', fill >= 1);
+      this.pips[i].classList.toggle('locked', i >= p.abilities.dashPips);
     }
-    for (let i = 0; i < this.wallJumps.length; i++) this.wallJumps[i].classList.toggle('used', i >= p.wallJumpsLeft);
+    for (let i = 0; i < this.wallJumps.length; i++) {
+      this.wallJumps[i].classList.toggle('used', i >= p.wallJumpsLeft);
+      this.wallJumps[i].classList.toggle('locked', i >= p.abilities.wallJumps);
+    }
+    for (let i = 0; i < this.airJumps.length; i++) {
+      this.airJumps[i].classList.toggle('used', i >= p.airJumpsLeft);
+      this.airJumps[i].classList.toggle('locked', i >= p.abilities.airJumps);
+    }
 
     // Health with a trailing "lag" bar.
     const hf = c.health / COMBAT.PLAYER_MAX_HEALTH;

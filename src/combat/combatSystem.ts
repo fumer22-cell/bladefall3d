@@ -26,7 +26,7 @@ export interface CombatEventMap extends Record<string, unknown> {
   postureBreak: { pos: V3; player: boolean };
   deathblow: { pos: V3 };
   kill: { pos: V3; target: Combatant };
-  aggro: { kind: string };
+  aggro: { kind: string; pos: V3 };
   heal: { amount: number };
   shoot: { pos: V3 };
   projectileBurst: { pos: V3 };
@@ -132,7 +132,7 @@ export class CombatSystem {
         if (e.type === 'attack') this.resolveEnemyMelee(d, e.attack);
         else if (e.type === 'telegraph') this.events.emit('telegraph', { unblockable: e.unblockable });
         else if (e.type === 'shoot') this.fireAtPlayer(d);
-        else if (e.type === 'aggro') this.events.emit('aggro', { kind: d.kind });
+        else if (e.type === 'aggro') this.events.emit('aggro', { kind: d.kind, pos: d.pos });
       }
       d.events.length = 0;
     }

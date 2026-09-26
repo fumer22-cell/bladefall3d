@@ -14,7 +14,8 @@ import {
   type PerspectiveCamera,
   type WebGLRenderer,
 } from 'three';
-import { PIXEL } from '../config';
+import { LOOM, PIXEL } from '../config';
+import { loomUniforms } from './loom';
 import { PALETTE } from './palette';
 
 const LUT_N = 32;
@@ -89,6 +90,14 @@ export class PixelPipeline {
         vignette: { value: PIXEL.VIGNETTE },
         grade: { value: PIXEL.GRADE },
         screen: { value: [1, 1] },
+        uLoom: loomUniforms.uLoom,
+        paint: { value: LOOM.PAINT ? 1 : 0 },
+        paintBlock: { value: LOOM.PAINT_BLOCK },
+        paintLevels: { value: LOOM.PAINT_LEVELS },
+        paintHaze: { value: LOOM.PAINT_HAZE },
+        paintRim: { value: LOOM.PAINT_RIM },
+        haze: { value: [0.48, 0.37, 0.49] },
+        rim: { value: [1.0, 0.94, 0.84] },
       },
       vertexShader: /* glsl */ `
         void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -107,10 +116,35 @@ export class PixelPipeline {
         uniform float vignette;
         uniform float grade;
         uniform vec2 screen;
+        uniform vec4 uLoom;
 
         float viewZ(ivec2 p) {
           float d = texelFetch(tDepth, p, 0).r;
           return (near * far) / (far - d * (far - near));
+        }
+
+        uniform float paint;
+        uniform float paintBlock;
+        uniform float paintLevels;
+        uniform float paintHaze;
+        uniform float paintRim;
+        uniform vec3 haze;
+        uniform vec3 rim;
+
+        vec3 toSrgb(vec3 c) {
+          return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+        }
+
+        bool isSky(ivec2 p) {
+          return texelFetch(tDepth, p, 0).r > 0.99999;
+        }
+
+        /** How far into the looming zone a pixel is: 0 near, → 1 far. The depth buffer holds the
+         *  warped distance w, and the warp's slope there is exp(−(w − D)/S). */
+        float loomAmount(ivec2 p) {
+          if (isSky(p)) return uLoom.z;
+          float w = viewZ(p);
+          return w <= uLoom.x ? 0.0 : uLoom.z * (1.0 - exp(-(w - uLoom.x) / uLoom.y));
         }
 
         float bayer4(ivec2 p) {
@@ -128,9 +162,42 @@ export class PixelPipeline {
         void main() {
           ivec2 size = textureSize(tColor, 0);
           ivec2 p = min(ivec2(gl_FragCoord.xy / factor), size - 1);
-          vec3 c = texelFetch(tColor, p, 0).rgb;
           // Linear → sRGB (everything below works in display space, like the palette).
-          c = mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+          vec3 c = toSrgb(texelFetch(tColor, p, 0).rgb);
+
+          // Painted backdrop: in the looming zone, coarse flat pixels with banded light, haze
+          // steps and a rim of light along the skyline, dithered in over the boundary.
+          bool painted = false;
+          if (paint > 0.5 && uLoom.z > 0.01) {
+            int B = int(paintBlock);
+            ivec2 bp = p / B;
+            ivec2 bc = clamp(bp * B + B / 2, ivec2(0), size - 1);
+            float amtB = loomAmount(bc);
+            float dth = bayer4(bp) + 0.5;
+            float t = smoothstep(0.12, 0.42, amtB);
+            bool sky = isSky(bc);
+            // The sky is already painterly: leave it alone.
+            if (t > dth && !sky) {
+              painted = true;
+              vec3 avg = vec3(0.0);
+              for (int j = 0; j < 2; j++)
+                for (int i = 0; i < 2; i++)
+                  avg += toSrgb(texelFetch(tColor, clamp(bp * B + ivec2(i, j) * max(B - 1, 1), ivec2(0), size - 1), 0).rgb);
+              vec3 q = mix(toSrgb(texelFetch(tColor, bc, 0).rgb), avg * 0.25, 0.75);
+              if (!sky) {
+                float band = amtB < 0.5 ? 0.0 : (amtB < 0.66 ? 1.0 : (amtB < 0.8 ? 2.0 : 3.0));
+                q = mix(q, haze, band * paintHaze);
+              }
+              float L = max(dot(q, vec3(0.299, 0.587, 0.114)), 0.001);
+              float lev = sky ? 14.0 : paintLevels;
+              float Lq = max(floor(L * lev + 0.5 + (dth - 0.5) * 0.6), 0.6) / lev;
+              q *= Lq / L;
+              q = mix(q, q * vec3(0.9, 0.9, 1.08), (1.0 - Lq) * 0.5);
+              q = mix(q, q * vec3(1.06, 1.02, 0.94), Lq * 0.5);
+              if (!sky && isSky(clamp(bc + ivec2(0, B), ivec2(0), size - 1))) q = mix(q, rim, paintRim);
+              c = q;
+            }
+          }
 
           // Ink outline drawn just outside silhouettes: this pixel is far behind a neighbor.
           float z = viewZ(p);
@@ -141,7 +208,7 @@ export class PixelPipeline {
             float nz = viewZ(q);
             if ((z - nz) / nz > outlineThreshold) edge = 1.0;
           }
-          c = mix(c, c * 0.25 + vec3(0.03, 0.025, 0.05), edge * outline);
+          if (!painted) c = mix(c, c * 0.25 + vec3(0.03, 0.025, 0.05), edge * outline);
 
           // Grade: cool, violet shadows and warm, golden highlights.
           float l = dot(c, vec3(0.299, 0.587, 0.114));
@@ -171,6 +238,17 @@ export class PixelPipeline {
     this.rt.setSize(w, h);
     this.mat.uniforms.factor.value = this.factor;
     this.mat.uniforms.screen.value = [width, height];
+  }
+
+  /** Haze (fog) colour for the painted backdrop, as sRGB 0..1; the skyline rim is a pale version of it. */
+  setHaze(r: number, g: number, b: number, rimWarmth = 1): void {
+    this.mat.uniforms.haze.value = [r, g, b];
+    const lift = (v: number, w: number) => Math.min(1, v + (1 - v) * 0.75) * w;
+    this.mat.uniforms.rim.value = [lift(r, 1), lift(g, 0.97), lift(b, rimWarmth > 0.5 ? 0.9 : 1.05)];
+  }
+
+  setPaint(on: boolean): void {
+    this.mat.uniforms.paint.value = on ? 1 : 0;
   }
 
   get lowResSize(): [number, number] {

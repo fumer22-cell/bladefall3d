@@ -106,6 +106,15 @@ export class World implements VoxelQuery {
     return true;
   }
 
+  /** Was the block here placed by the player (vs. generated)? */
+  isPlayerPlaced(x: number, y: number, z: number): boolean {
+    if (y < 0 || y >= WORLD_H) return false;
+    const e = this.edits.get(colKey(x >> 4, z >> 4));
+    if (!e) return false;
+    const id = e.get(colIndex(x & 15, y, z & 15));
+    return id !== undefined && id !== 0 && id === this.getBlock(x, y, z);
+  }
+
   setBlock(x: number, y: number, z: number, id: number): void {
     if (y < 0 || y >= WORLD_H) return;
     let c = this.columnAt(x, z);

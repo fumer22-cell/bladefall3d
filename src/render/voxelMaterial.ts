@@ -1,5 +1,6 @@
 import { ShaderMaterial, type Texture } from 'three';
-import { LIGHT, WORLD } from '../config';
+import { LIGHT, LOOM, WORLD } from '../config';
+import { LOOM_GLSL, loomUniforms } from './loom';
 import { ATLAS_TILES, TILE_PX } from '../world/tiles';
 
 function hexToVec(hex: number): [number, number, number] {
@@ -28,8 +29,12 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
       aoLevels: { value: LIGHT.AO },
       alpha: { value: water ? 0.8 : 1 },
       faceShade: { value: WORLD.FACE_SHADE },
+      fogWarped: { value: LOOM.FOG_WARPED },
+      ...loomUniforms,
     },
     vertexShader: /* glsl */ `
+      ${LOOM_GLSL}
+      uniform float fogWarped;
       attribute vec3 aColor;
       attribute vec2 aLight;
       attribute float aAO;
@@ -55,8 +60,9 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
         vTile = aTile;
         vTileSide = aTileSide;
         vWorld = wp.xyz;
-        vec4 mv = viewMatrix * wp;
-        vDist = length(mv.xyz);
+        // Looming: draw the vertex pulled in horizontally; fog mostly follows the drawn distance.
+        vec4 mv = viewMatrix * vec4(loomWarp(wp.xyz), 1.0);
+        vDist = mix(length(wp.xyz - cameraPosition), length(mv.xyz), fogWarped);
         gl_Position = projectionMatrix * mv;
       }
     `,

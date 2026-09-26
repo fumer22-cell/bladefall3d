@@ -14,6 +14,7 @@ export interface PlayerSave {
   spawn: [number, number, number];
   // --- Phase 6 (optional so older saves still load) ---
   armor?: (Stack | null)[];
+  trinkets?: (Stack | null)[];
   food?: number;
   bodyTemp?: number;
   /** Bed the player sleeps in / respawns at. */

@@ -1,7 +1,18 @@
 import { INVENTORY, TIERS } from '../config';
 import { BLOCKS, Block } from '../world/blocks';
 
-export type ItemKind = 'block' | 'tool' | 'weapon' | 'material' | 'food' | 'armor';
+export type ItemKind = 'block' | 'tool' | 'weapon' | 'material' | 'food' | 'armor' | 'trinket';
+
+/** Movement a trinket unlocks (added to the base kit). */
+export interface TrinketDef {
+  dashPips?: number;
+  airJumps?: number;
+  wallJumps?: number;
+  wallRun?: boolean;
+  grapple?: boolean;
+  /** One-line description for tooltips. */
+  desc: string;
+}
 
 export type ArmorSlot = 0 | 1 | 2;
 export const ARMOR_SLOT_NAMES = ['Head', 'Body', 'Legs'] as const;
@@ -16,13 +27,15 @@ export interface ItemDef {
   /** Block placed by this item. */
   block?: number;
   /** Pickaxe stats. */
-  tool?: { tier: number; mineSpeed: number };
+  tool?: { tier: number; mineSpeed: number; area: readonly [number, number] };
   /** Index into WEAPONS + damage/posture multiplier for the material. */
   weapon?: { index: number; mult: number };
   /** Eating it: food points, health healed over time, and whether it warms you. */
   food?: { food: number; heal: number; warm?: boolean };
   /** Wearing it: slot, fraction of enemy damage absorbed, warmth in °C. */
   armor?: { slot: ArmorSlot; defense: number; warmth: number };
+  /** Worn in a trinket slot: movement upgrades. */
+  trinket?: TrinketDef;
   /** Short label drawn on the icon. */
   abbr?: string;
 }
@@ -78,6 +91,16 @@ add({ id: 'crow_meat', name: 'Raw Crow', kind: 'food', color: 0xbd5751, abbr: 'R
 add({ id: 'roast_crow', name: 'Roast Crow', kind: 'food', color: 0x7f5a32, abbr: 'Rst', food: { food: 32, heal: 14 } });
 add({ id: 'berry_tart', name: 'Berry Tart', kind: 'food', color: 0xbd5751, abbr: 'Trt', food: { food: 26, heal: 10 } });
 add({ id: 'glowcap_stew', name: 'Glowcap Stew', kind: 'food', color: 0x3f8475, abbr: 'Stw', maxStack: 8, food: { food: 42, heal: 24, warm: true } });
+
+// --- Trinkets (movement upgrades) ---
+const trinket = (id: string, name: string, color: number, abbr: string, t: TrinketDef) =>
+  add({ id, name, kind: 'trinket', color, abbr, maxStack: 1, trinket: t });
+trinket('feather_charm', 'Feather Charm', 0x2b2437, 'FC', { airJumps: 1, desc: '+1 air jump' });
+trinket('storm_charm', 'Storm Charm', 0x66c1d6, 'SC', { airJumps: 1, dashPips: 1, desc: '+1 air jump, +1 dash' });
+trinket('copper_band', 'Copper Band', 0xe08a50, 'CB', { dashPips: 1, desc: '+1 dash' });
+trinket('iron_band', 'Iron Band', 0xd8d8dc, 'IB', { dashPips: 2, desc: '+2 dashes' });
+trinket('climbing_claws', 'Climbing Claws', 0xc9bfa7, 'Cl', { wallJumps: 3, wallRun: true, desc: 'Wall run and 3 wall jumps' });
+trinket('grappling_hook', 'Grappling Hook', 0x978474, 'GH', { grapple: true, desc: 'Grapple: V or middle mouse' });
 
 // --- Armor (head, body, legs) ---
 add({ id: 'feather_hood', name: 'Feather Hood', kind: 'armor', color: 0x2b2437, abbr: 'Hd', maxStack: 1, armor: { slot: 0, defense: 0.03, warmth: 6 } });
