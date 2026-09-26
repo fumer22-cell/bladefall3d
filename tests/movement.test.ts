@@ -279,3 +279,18 @@ describe('step-up', () => {
     expect(p.pos.z).toBeGreaterThan(41);
   });
 });
+
+describe('water', () => {
+  it('sinks slowly and swims up while jump is held', () => {
+    const w = flatWorld();
+    w.fill(0, 4, 0, 63, 12, 63, Block.WATER);
+    const p = playerOnGround(w);
+    p.teleport(32.5, 10, 32.5);
+    step(p, w, {}, 60);
+    expect(p.inWater).toBe(true);
+    expect(p.vel.y).toBeGreaterThanOrEqual(-MOVE.WATER_MAX_SINK - 0.01);
+    const y = p.pos.y;
+    step(p, w, { jumpHeld: true }, 30);
+    expect(p.pos.y).toBeGreaterThan(y);
+  });
+});

@@ -19,7 +19,10 @@ export type SfxName =
   | 'deathblow'
   | 'shoot'
   | 'dash'
-  | 'death';
+  | 'death'
+  | 'dig'
+  | 'break'
+  | 'place';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -147,6 +150,17 @@ export function play(name: SfxName): void {
       break;
     case 'death':
       tone('sawtooth', 200, 0.3, 1.2, 40);
+      break;
+    case 'dig':
+      noise('bandpass', 600 + Math.random() * 300, 1.5, 0.22, 0.06);
+      break;
+    case 'break':
+      noise('lowpass', 900, 0.8, 0.45, 0.14);
+      tone('sine', 120, 0.25, 0.1, 70);
+      break;
+    case 'place':
+      tone('sine', 220, 0.25, 0.07, 140);
+      noise('lowpass', 1200, 0.8, 0.2, 0.05);
       break;
   }
 }

@@ -3,7 +3,11 @@ import { greedyMesh } from '../src/render/mesher';
 import { Block } from '../src/world/blocks';
 import { World } from '../src/world/world';
 
-const quads = (w: World, cx = 0, cy = 0, cz = 0) => greedyMesh(w.buildPadded(cx, cy, cz)).indices.length / 6;
+const mesh = (w: World, cx = 0, cy = 0, cz = 0) => {
+  const { blocks, light } = w.buildPadded(cx, cy, cz);
+  return greedyMesh(blocks, light);
+};
+const quads = (w: World, cx = 0, cy = 0, cz = 0) => mesh(w, cx, cy, cz).opaque.indices.length / 6;
 
 describe('greedyMesh', () => {
   it('meshes a single block as 6 quads', () => {
@@ -20,7 +24,7 @@ describe('greedyMesh', () => {
 
   it('merges a full slab into 6 quads', () => {
     const w = new World();
-    w.fill(0, 0, 0, 15, 0, 15, Block.STONE);
+    w.fill(0, 5, 0, 15, 5, 15, Block.STONE);
     expect(quads(w)).toBe(6);
   });
 
@@ -44,7 +48,7 @@ describe('greedyMesh', () => {
   it('emits outward-facing normals with correct winding', () => {
     const w = new World();
     w.setBlock(5, 5, 5, Block.STONE);
-    const m = greedyMesh(w.buildPadded(0, 0, 0));
+    const m = mesh(w).opaque;
     for (let t = 0; t < m.indices.length; t += 3) {
       const [a, b, c] = [m.indices[t], m.indices[t + 1], m.indices[t + 2]].map((i) => [
         m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2],
@@ -56,5 +60,41 @@ describe('greedyMesh', () => {
       const dot = cross[0] * m.normals[i] + cross[1] * m.normals[i + 1] + cross[2] * m.normals[i + 2];
       expect(dot).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('greedyMesh lighting, AO and special shapes', () => {
+  it('bakes the light of the cell in front of each face', () => {
+    const w = new World();
+    w.setBlock(5, 5, 5, Block.STONE);
+    w.lightAll();
+    const m = mesh(w).opaque;
+    // Open sky around: full sunlight on top and sides; the cell underneath is shaded by the block (14).
+    for (let v = 0; v < m.light.length / 2; v++) {
+      const down = m.normals[v * 3 + 1] < 0;
+      expect(m.light[v * 2]).toBeCloseTo(down ? 14 / 15 : 1, 5);
+    }
+  });
+
+  it('adds ambient occlusion where a floor meets a wall', () => {
+    const w = new World();
+    w.fill(0, 5, 0, 15, 5, 15, Block.STONE);
+    w.fill(8, 6, 0, 8, 8, 15, Block.STONE);
+    const m = mesh(w).opaque;
+    expect(Math.max(...m.ao)).toBeGreaterThan(0);
+  });
+
+  it('puts water in its own mesh and only draws water faces toward air', () => {
+    const w = new World();
+    w.fill(2, 5, 2, 4, 5, 4, Block.WATER);
+    const { opaque, water } = mesh(w);
+    expect(opaque.indices.length).toBe(0);
+    expect(water.indices.length / 6).toBe(6); // one merged quad per side of the 3×1×3 pool
+  });
+
+  it('meshes torches as small models', () => {
+    const w = new World();
+    w.setBlock(5, 5, 5, Block.TORCH);
+    expect(mesh(w).opaque.indices.length / 6).toBe(12);
   });
 });

@@ -30,6 +30,8 @@ export class Player {
   state: MoveState = 'air';
   grounded = false;
   crouched = false;
+  /** Body is in water (swimming physics). */
+  inWater = false;
 
   touchingWall = false;
   wallNX = 0;

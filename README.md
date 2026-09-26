@@ -21,6 +21,11 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   posture, stagger + deathblow, riposte, projectile parry, telegraphs, off-screen warnings, blood healing,
   hitstop/shake/particles and placeholder sounds. Five weapons (keys 1–5). Press **G** to cycle the dummy's
   mode and **H** to move it in front of you.
+- **Phase 3 — procedural world:** streamed chunk columns generated in Web Workers (hills, ridged mountains,
+  lakes, beaches, snow caps, caves and tunnels, coal/copper/iron veins, trees, small ruins), greedy meshing in
+  workers with baked sky + torch light and ambient occlusion, mining and placing (press **B** for build mode),
+  swimming. Edits persist while you play (saving to disk arrives in Phase 4). Open `#arena` in the URL for the
+  flat test arena.
 
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

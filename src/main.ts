@@ -1,7 +1,8 @@
 import { Game } from './core/game';
 
 const root = document.getElementById('app')!;
-const game = new Game(root);
+// `#arena` opens the flat movement/combat test arena instead of the procedural world.
+const game = new Game(root, location.hash === '#arena' ? 'arena' : 'world');
 game.start();
 
 // Handy for poking at state from the dev console.

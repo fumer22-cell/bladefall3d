@@ -1,6 +1,6 @@
 import { MOVE, PLAYER } from '../config';
 import { clamp, moveToward2 } from '../core/math';
-import { FRICTION } from '../world/blocks';
+import { FRICTION, SHAPE } from '../world/blocks';
 import { boxOverlapsSolid, moveBox, sweepAxis, type AABB, type MoveResult } from '../world/collision';
 import type { VoxelQuery } from '../world/world';
 import type { Player } from './player';
@@ -10,6 +10,7 @@ export interface MoveIntent {
   forward: number;
   right: number;
   jumpPressed: boolean;
+  jumpHeld: boolean;
   dashPressed: boolean;
   crouchPressed: boolean;
   crouchHeld: boolean;
@@ -19,6 +20,7 @@ export const NO_INTENT: MoveIntent = {
   forward: 0,
   right: 0,
   jumpPressed: false,
+  jumpHeld: false,
   dashPressed: false,
   crouchPressed: false,
   crouchHeld: false,
@@ -41,6 +43,7 @@ interface Wish {
 export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt: number): void {
   p.prevPos.copy(p.pos);
   const wish = computeWish(p, input);
+  p.inWater = SHAPE[world.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.6), Math.floor(p.pos.z))] === 'water';
 
   // --- Timers ---
   p.jumpBuffer = input.jumpPressed ? MOVE.JUMP_BUFFER : Math.max(0, p.jumpBuffer - dt);
@@ -68,7 +71,8 @@ export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt
       updateGround(p, wish, world, dt);
       break;
     case 'air':
-      updateAir(p, wish, dt);
+      if (p.inWater) updateSwim(p, wish, input, dt);
+      else updateAir(p, wish, dt);
       break;
     case 'slide':
       updateSlide(p, wish, input, world, dt);
@@ -239,7 +243,7 @@ function updateGround(p: Player, wish: Wish, world: VoxelQuery, dt: number): voi
   }
   rate *= groundFriction(p, world);
   const h = { x: p.vel.x, z: p.vel.z };
-  const run = MOVE.RUN_SPEED * p.speedMult;
+  const run = MOVE.RUN_SPEED * p.speedMult * (p.inWater ? MOVE.WATER_SPEED_MULT : 1);
   moveToward2(h, wish.x * run, wish.z * run, rate * dt);
   p.vel.x = h.x;
   p.vel.z = h.z;
@@ -269,6 +273,26 @@ function updateAir(p: Player, wish: Wish, dt: number): void {
   // Wall slide: pushing into a wall slows the fall.
   if (p.touchingWall && wish.has && p.vel.y < -MOVE.WALL_SLIDE_MAX_FALL) {
     if (-(wish.x * p.wallNX + wish.z * p.wallNZ) > 0.3) p.vel.y = -MOVE.WALL_SLIDE_MAX_FALL;
+  }
+}
+
+function updateSwim(p: Player, wish: Wish, input: MoveIntent, dt: number): void {
+  const swim = MOVE.RUN_SPEED * MOVE.WATER_SPEED_MULT * p.speedMult;
+  const h = { x: p.vel.x, z: p.vel.z };
+  const hs = Math.hypot(h.x, h.z);
+  // Bleed off speed above swim speed, then steer toward the wish direction.
+  if (hs > swim) {
+    const k = Math.max(swim, hs - MOVE.WATER_DRAG * hs * dt) / hs;
+    h.x *= k;
+    h.z *= k;
+  }
+  moveToward2(h, wish.x * swim, wish.z * swim, MOVE.AIR_ACCEL * 0.5 * dt);
+  p.vel.x = h.x;
+  p.vel.z = h.z;
+  if (input.jumpHeld) {
+    p.vel.y = p.touchingWall ? MOVE.WATER_EXIT_BOOST : Math.min(MOVE.SWIM_UP_SPEED, p.vel.y + MOVE.GRAVITY * dt);
+  } else {
+    p.vel.y = Math.max(p.vel.y - MOVE.GRAVITY * MOVE.WATER_GRAVITY_MULT * dt, -MOVE.WATER_MAX_SINK);
   }
 }
 

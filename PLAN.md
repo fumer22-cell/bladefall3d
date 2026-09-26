@@ -106,12 +106,11 @@ UI is plain DOM over the canvas (fast to build, crisp text); 3D-space elements (
 - Render state is interpolated (`prev` / `curr` positions) → smooth on 120/144 Hz monitors.
 
 ### Voxels
-- Chunk = **16³** (config). World columns are finite in height (e.g. 0..255 → 16 chunks tall), infinite-ish in X/Z.
-- Block data `Uint16Array` (room for many block types), light `Uint8Array` (4 bits sky, 4 bits block light).
-- **Workers:** a small pool — generation worker(s) produce chunk data; mesher worker(s) produce greedy meshes (positions, normals, colors, indices as transferable ArrayBuffers). Main thread only uploads to GPU.
-- **Greedy meshing** per face direction, merging faces with the same block id *and* same light/AO so lighting stays correct (falls back to smaller quads where light varies).
-- Single shared vertex-colored material (`MeshLambertMaterial` / custom shader for light levels + day/night factor). Transparent blocks (water, ice, glass) in a second pass.
-- Remesh priority queue: edited chunks first, nearest-first for new chunks.
+- World is 256 blocks tall and infinite-ish in X/Z. Storage is per **16×16×256 column** (flat `Uint16Array` blocks + `Uint8Array` light, 4 bits sky / 4 bits block light); meshing and dirty tracking are per **16³ chunk** within a column.
+- **Workers:** a small pool runs both jobs. Generation returns a finished column (blocks + column-local light) as transferable buffers; meshing takes a padded 18³ block + light snapshot and returns greedy meshes. The main thread only stitches light across column borders, applies edits and uploads to the GPU.
+- **Greedy meshing** per face direction, merging faces with the same block id, light and AO (falls back to smaller quads where they vary). Water is a separate transparent mesh; torches are small non-greedy models.
+- **Lighting:** BFS flood fill for sunlight (full-strength straight down) and block light (torches), with incremental add/remove on edits. Meshes bake per-face light + per-vertex AO; the shader applies a daylight factor (for Phase 6) and a warm torch tint.
+- Chunks are remeshed nearest-first once their 3×3 column neighborhood is loaded; unloaded space counts as solid so nothing falls through while streaming. Player edits are stored per column and reapplied when a column regenerates.
 
 ### Collision
 - Player/enemies are AABBs. Move per axis (Y, then X, then Z), clamp against solid voxels overlapping the swept box. Report contacts (ground, wall normal, ceiling) for movement logic.

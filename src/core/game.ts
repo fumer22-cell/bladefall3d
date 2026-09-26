@@ -1,25 +1,39 @@
 import { Vector3 } from 'three';
 import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
-import { type CombatIntent } from '../combat/playerCombat';
+import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, PARTICLES, SIM, TEST_ARENA, WEAPONS, type Action } from '../config';
+import { CAMERA, COMBAT, PARTICLES, PLAYER, SIM, TEST_ARENA, WEAPONS, WORLD, type Action } from '../config';
+import { Builder } from '../player/builder';
 import { NO_INTENT, stepMovement, type MoveIntent } from '../player/movement';
 import { Player } from '../player/player';
+import { BlockHighlight } from '../render/blockHighlight';
 import { CameraRig } from '../render/cameraRig';
+import { ChunkRenderer } from '../render/chunkRenderer';
 import { DummyView } from '../render/dummyView';
 import { Particles } from '../render/particles';
 import { ProjectileView } from '../render/projectileView';
 import { Renderer } from '../render/renderer';
+import { setFogColor } from '../render/voxelMaterial';
 import { Viewmodel } from '../render/viewmodel';
 import { Hud } from '../ui/hud';
+import { COLOR, SHAPE, SOLID } from '../world/blocks';
+import { CS, WORLD_H } from '../world/chunk';
+import { WorldStreamer } from '../world/streamer';
 import { buildTestArena } from '../world/testArena';
+import { WorkerPool } from '../world/workerPool';
 import { World } from '../world/world';
 import { Input } from './input';
 import { FixedLoop } from './loop';
-import { clamp, DEG } from './math';
+import { clamp, damp, DEG } from './math';
 
-const WEAPON_KEYS: Action[] = ['weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5'];
+const SLOT_KEYS: Action[] = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8', 'slot9'];
+
+export type GameMode = 'world' | 'arena';
+
+const hexRGB = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+const SKY_RGB = hexRGB(WORLD.SKY_COLOR);
+const CAVE_RGB = hexRGB(WORLD.CAVE_FOG_COLOR);
 
 export class Game {
   readonly world = new World();
@@ -32,13 +46,25 @@ export class Game {
   readonly combat: CombatSystem;
   readonly particles: Particles;
   readonly viewmodel = new Viewmodel();
+  readonly builder = new Builder();
+  readonly chunks: ChunkRenderer;
+  readonly streamer: WorldStreamer | null = null;
+  readonly seed: number;
+  private readonly highlight: BlockHighlight;
   private readonly dummyViews: DummyView[] = [];
   private readonly projectileView: ProjectileView;
+  private readonly spawnPoint = new Vector3();
+  /** World mode: false until the spawn area has generated. */
+  private ready = false;
   private slowmo = false;
   private frameMouseDx = 0;
   private frameMouseDy = 0;
+  private caveMix = 0;
 
-  constructor(root: HTMLElement) {
+  constructor(
+    root: HTMLElement,
+    readonly mode: GameMode = 'world',
+  ) {
     this.renderer = new Renderer(root);
     this.input = new Input(this.renderer.canvas);
     this.hud = new Hud(root);
@@ -48,11 +74,27 @@ export class Game {
     });
     document.addEventListener('pointerlockchange', () => this.hud.setOverlay(!this.input.locked));
 
-    buildTestArena(this.world);
+    this.seed = WORLD.SEED || Math.floor(Math.random() * 2 ** 31);
+    if (mode === 'arena') {
+      buildTestArena(this.world);
+      this.world.lightAll();
+      this.chunks = new ChunkRenderer(this.renderer.scene, null);
+      const s = TEST_ARENA.SPAWN;
+      this.spawnPoint.set(s.x, s.y, s.z);
+      this.ready = true;
+    } else {
+      const pool = new WorkerPool();
+      this.world.recordEdits = true;
+      this.chunks = new ChunkRenderer(this.renderer.scene, pool);
+      this.streamer = new WorldStreamer(this.world, pool, this.seed);
+      this.spawnPoint.set(8.5, WORLD.SEA_LEVEL + 20, 8.5);
+    }
+
+    this.highlight = new BlockHighlight(this.renderer.scene);
     this.combat = new CombatSystem(this.player, this.world, () => this.respawn());
     this.particles = new Particles(this.renderer.scene, this.world);
     this.projectileView = new ProjectileView(this.renderer.scene);
-    this.addDummy(80.5, 4, 74.5);
+    this.addDummy(this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z - 6);
     this.respawn();
     this.wireFeedback();
 
@@ -72,10 +114,51 @@ export class Game {
   }
 
   private respawn(): void {
-    const s = TEST_ARENA.SPAWN;
+    const s = this.spawnPoint;
     this.player.teleport(s.x, s.y, s.z);
     this.player.yaw = 0;
     this.player.pitch = 0;
+  }
+
+  /** Top of the ground at x, z (first solid block from the sky down), or -1 if unloaded. */
+  private surfaceY(x: number, z: number): number {
+    if (!this.world.isLoaded(x, z)) return -1;
+    for (let y = WORLD_H - 1; y > 0; y--) {
+      const id = this.world.getBlock(x, y, z);
+      if (SOLID[id]) return y + 1;
+      if (SHAPE[id] === 'water') return -1;
+    }
+    return -1;
+  }
+
+  /** Once the spawn area is loaded, pick a dry spot near the origin. */
+  private trySpawn(): void {
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (!this.world.column(dx, dz)) return;
+    for (let r = 0; r < 24 && !this.ready; r++) {
+      for (let a = 0; a < Math.max(1, r * 6); a++) {
+        const x = 8 + Math.round(Math.cos((a / Math.max(1, r * 6)) * Math.PI * 2) * r);
+        const z = 8 + Math.round(Math.sin((a / Math.max(1, r * 6)) * Math.PI * 2) * r);
+        const y = this.surfaceY(x, z);
+        if (y < 0) continue;
+        this.spawnPoint.set(x + 0.5, y, z + 0.5);
+        this.ready = true;
+        break;
+      }
+    }
+    if (!this.ready) {
+      this.spawnPoint.y = this.surfaceY(8, 8) > 0 ? this.surfaceY(8, 8) : WORLD.SEA_LEVEL + 2;
+      this.ready = true;
+    }
+    this.respawn();
+    this.placeDummyInFront(6);
+  }
+
+  private placeDummyInFront(dist: number): void {
+    const p = this.player;
+    const x = p.pos.x - Math.sin(p.yaw) * dist, z = p.pos.z - Math.cos(p.yaw) * dist;
+    let y = this.surfaceY(Math.floor(x), Math.floor(z));
+    if (y < 0) y = p.pos.y;
+    this.combat.dummies[0]?.moveTo(x, y + 0.01, z);
   }
 
   /** Hook combat events up to hitstop, camera shake, particles, sound and HUD flashes. */
@@ -157,6 +240,7 @@ export class Game {
       forward: (i.isHeld('forward') ? 1 : 0) - (i.isHeld('back') ? 1 : 0),
       right: (i.isHeld('right') ? 1 : 0) - (i.isHeld('left') ? 1 : 0),
       jumpPressed: i.wasPressed('jump'),
+      jumpHeld: i.isHeld('jump'),
       dashPressed: i.wasPressed('dash'),
       crouchPressed: i.wasPressed('crouch'),
       crouchHeld: i.isHeld('crouch'),
@@ -165,30 +249,67 @@ export class Game {
 
   private combatIntent(dashed: boolean): CombatIntent {
     const i = this.input;
-    const on = i.locked;
+    if (!i.locked || this.builder.enabled) return { ...NO_COMBAT_INTENT, dashed };
     return {
-      attackPressed: on && i.wasPressed('attack'),
-      attackHeld: on && i.isHeld('attack'),
-      blockPressed: on && i.wasPressed('block'),
-      blockHeld: on && i.isHeld('block'),
-      feintPressed: on && i.wasPressed('feint'),
+      attackPressed: i.wasPressed('attack'),
+      attackHeld: i.isHeld('attack'),
+      blockPressed: i.wasPressed('block'),
+      blockHeld: i.isHeld('block'),
+      feintPressed: i.wasPressed('feint'),
       dashed,
     };
   }
 
   private step(dt: number): void {
-    const { player, combat } = this;
+    const { player, combat, input } = this;
+    if (!this.ready) {
+      input.endStep();
+      return;
+    }
     const move = this.moveIntent(combat.inputLocked());
     const dashed = move.dashPressed && player.dashPips >= 1;
     stepMovement(player, move, this.world, dt);
     if (dashed) play('dash');
-    combat.step(dt, this.combatIntent(dashed), this.input.locked && this.input.wasPressed('interact'));
+    combat.step(dt, this.combatIntent(dashed), input.locked && input.wasPressed('interact'));
+
+    const b = this.builder;
+    b.update(
+      dt,
+      {
+        mineHeld: input.locked && input.isHeld('attack'),
+        placeHeld: input.locked && input.isHeld('block'),
+        placePressed: input.locked && input.wasPressed('block'),
+      },
+      this.world,
+      [player.box(), ...combat.dummies.filter((d) => d.alive).map((d) => d.hurtbox())],
+    );
+    for (const e of b.events) {
+      if (e.type === 'broken') {
+        this.particles.burst(
+          { x: e.x + 0.5, y: e.y + 0.5, z: e.z + 0.5 },
+          { count: 24, color: COLOR[e.id], speed: 4, life: 0.9, size: 0.12 },
+        );
+        play('break');
+      } else if (e.type === 'placed') {
+        this.viewmodel.pulse();
+        play('place');
+      } else play('dig');
+    }
+    b.events.length = 0;
+
     if (player.pos.y < -30) this.respawn();
-    this.input.endStep();
+    input.endStep();
   }
 
   private frame(alpha: number, frameDt: number): void {
-    const { input, player, combat } = this;
+    const { input, player, combat, builder } = this;
+
+    // World streaming + spawn.
+    if (this.streamer) {
+      this.streamer.update(player.pos.x, player.pos.z);
+      if (!this.ready) this.trySpawn();
+    }
+    this.hud.setLoading(!this.ready, this.streamer?.busy ?? 0);
 
     // Per-frame UI actions.
     if (input.consumePress('debug')) this.hud.toggleDebug();
@@ -200,17 +321,21 @@ export class Game {
       this.slowmo = !this.slowmo;
       this.hud.setSlowmo(this.slowmo);
     }
-    WEAPON_KEYS.forEach((k, i) => {
-      if (input.consumePress(k) && i < WEAPONS.length) combat.combat.setWeapon(i);
+    if (input.consumePress('build')) builder.enabled = !builder.enabled;
+    SLOT_KEYS.forEach((k, i) => {
+      if (!input.consumePress(k)) return;
+      if (builder.enabled) builder.select(i);
+      else if (i < WEAPONS.length) combat.combat.setWeapon(i);
     });
+    const wheel = input.takeWheel();
+    if (wheel !== 0) {
+      if (builder.enabled) builder.select(builder.selected + wheel);
+      else combat.combat.setWeapon((combat.combat.weaponIndex + wheel + WEAPONS.length) % WEAPONS.length);
+    }
     if (input.consumePress('dummyMode')) {
       for (const d of combat.dummies) d.setMode(DUMMY_MODES[(DUMMY_MODES.indexOf(d.mode) + 1) % DUMMY_MODES.length]);
     }
-    if (input.consumePress('dummyReset')) {
-      const f = new Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-      const d = combat.dummies[0];
-      d?.moveTo(player.pos.x + f.x * 4, player.pos.y + 0.01, player.pos.z + f.z * 4);
-    }
+    if (input.consumePress('dummyReset')) this.placeDummyInFront(4);
     this.loop.timeScale = (this.slowmo ? SIM.DEBUG_SLOWMO_SCALE : 1) * (combat.deathblow ? COMBAT.DEATHBLOW_TIMESCALE : 1);
 
     // Mouse look is applied per frame for minimum latency; it also steers swing direction.
@@ -226,15 +351,48 @@ export class Game {
     for (const e of player.events) this.cameraRig.handleEvent(e, player);
     player.events.length = 0;
 
+    const cam = this.renderer.camera;
     const strafe = input.locked ? (input.isHeld('right') ? 1 : 0) - (input.isHeld('left') ? 1 : 0) : 0;
     const zoom = combat.deathblow ? COMBAT.DEATHBLOW_FOV_ZOOM : 0;
-    this.cameraRig.update(this.renderer.camera, player, alpha, frameDt, strafe, zoom);
-    this.viewmodel.update(frameDt, this.renderer.camera, combat.combat, player, this.frameMouseDx, this.frameMouseDy);
+    this.cameraRig.update(cam, player, alpha, frameDt, strafe, zoom);
+
+    builder.aim(this.world, cam.position, combat.lookDir());
+    this.highlight.update(builder.target, builder.progress, builder.enabled);
+    this.viewmodel.update(frameDt, cam, combat.combat, player, this.frameMouseDx, this.frameMouseDy, {
+      enabled: builder.enabled,
+      mining: builder.enabled && builder.target !== null && input.locked && input.isHeld('attack'),
+    });
     combat.dummies.forEach((d, i) => this.dummyViews[i].update(d, alpha, frameDt * this.loop.timeScale));
     this.projectileView.update(combat.projectiles, alpha);
     this.particles.update(frameDt * this.loop.timeScale);
-    this.hud.update(player, combat, this.renderer.camera, frameDt);
-    this.renderer.syncChunks(this.world);
+    this.updateFog(frameDt);
+    this.hud.update(player, combat, cam, frameDt);
+    this.hud.updateBuild(builder, this.debugWorldInfo());
+    this.chunks.update(this.world, cam.position.x, cam.position.y, cam.position.z);
     this.renderer.render(this.viewmodel.scene);
+  }
+
+  /** Fade fog/sky toward near-black when the camera is somewhere without sky light (caves). */
+  private updateFog(dt: number): void {
+    const cam = this.renderer.camera.position;
+    const sky = this.world.getLight(Math.floor(cam.x), Math.floor(cam.y), Math.floor(cam.z)) >> 4;
+    this.caveMix = damp(this.caveMix, 1 - Math.min(1, sky / 12), 2.5, dt);
+    const t = this.caveMix;
+    const r = SKY_RGB[0] + (CAVE_RGB[0] - SKY_RGB[0]) * t;
+    const g = SKY_RGB[1] + (CAVE_RGB[1] - SKY_RGB[1]) * t;
+    const b = SKY_RGB[2] + (CAVE_RGB[2] - SKY_RGB[2]) * t;
+    setFogColor([this.chunks.opaqueMat, this.chunks.waterMat], r, g, b);
+    this.renderer.setSkyColor(r, g, b);
+  }
+
+  private debugWorldInfo(): string {
+    const p = this.player.pos;
+    const l = this.world.getLight(Math.floor(p.x), Math.floor(p.y + PLAYER.EYE_HEIGHT), Math.floor(p.z));
+    return (
+      `world    ${this.mode} seed ${this.seed}  chunk ${Math.floor(p.x / CS)},${Math.floor(p.z / CS)}\n` +
+      `columns  ${this.world.columns.size}  meshes ${this.chunks.meshCount}  dirty ${this.world.dirty.size}\n` +
+      `jobs     gen ${this.streamer?.busy ?? 0}  mesh ${this.chunks.pending}\n` +
+      `light    sky ${l >> 4} block ${l & 15}${this.player.inWater ? '  (in water)' : ''}`
+    );
   }
 }

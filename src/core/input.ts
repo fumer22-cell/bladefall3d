@@ -7,8 +7,8 @@ for (const [action, codes] of Object.entries(KEYS) as [Action, readonly string[]
 
 /** Actions handled per rendered frame rather than per sim step. */
 const UI_ACTIONS = new Set<Action>([
-  'reset', 'debug', 'slowmo', 'dummyMode', 'dummyReset',
-  'weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5',
+  'reset', 'debug', 'slowmo', 'dummyMode', 'dummyReset', 'build',
+  'slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8', 'slot9',
 ]);
 
 /**
@@ -21,6 +21,7 @@ export class Input {
   private pressed = new Set<Action>();
   private mouseDX = 0;
   private mouseDY = 0;
+  private wheel = 0;
   locked = false;
 
   constructor(private readonly canvas: HTMLElement) {
@@ -48,6 +49,15 @@ export class Input {
       const action = codeToAction.get(`Mouse${e.button}`);
       if (action) this.held.delete(action);
     });
+    document.addEventListener(
+      'wheel',
+      (e) => {
+        if (!this.locked) return;
+        this.wheel += Math.sign(e.deltaY);
+        e.preventDefault();
+      },
+      { passive: false },
+    );
     document.addEventListener('contextmenu', (e) => {
       if (this.locked) e.preventDefault();
     });
@@ -83,6 +93,13 @@ export class Input {
   /** Called after each sim step. UI actions stay latched until consumed with `consumePress`. */
   endStep(): void {
     for (const a of this.pressed) if (!UI_ACTIONS.has(a)) this.pressed.delete(a);
+  }
+
+  /** Wheel notches since last call (+ = scrolled down). */
+  takeWheel(): number {
+    const w = this.wheel;
+    this.wheel = 0;
+    return w;
   }
 
   takeMouseDelta(): { dx: number; dy: number } {

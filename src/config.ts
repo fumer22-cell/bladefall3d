@@ -97,6 +97,17 @@ export const MOVE = {
   WALL_JUMP_TANGENT_KEEP: 0.9,
   /** Max fall speed while pushing into a wall. */
   WALL_SLIDE_MAX_FALL: 5,
+
+  // --- Water ---
+  WATER_GRAVITY_MULT: 0.3,
+  WATER_MAX_SINK: 3,
+  WATER_SPEED_MULT: 0.55,
+  /** Vertical speed approached while holding jump in water. */
+  SWIM_UP_SPEED: 5,
+  /** Upward kick when swimming against a ledge, to climb out. */
+  WATER_EXIT_BOOST: 8,
+  /** Horizontal drag (1/s) above swim speed. */
+  WATER_DRAG: 4,
 } as const;
 
 export const CAMERA = {
@@ -142,12 +153,52 @@ export const CAMERA = {
 
 export const WORLD = {
   CHUNK_SIZE: 16,
+  /** World height in blocks (must be a multiple of CHUNK_SIZE). */
+  HEIGHT: 256,
+  SEA_LEVEL: 62,
+  /** World seed. 0 = random each load. */
+  SEED: 1337,
+  /** Columns loaded around the player (radius, in chunks). */
+  RENDER_DISTANCE: 7,
+  /** Columns are unloaded this many chunks beyond the render distance. */
+  UNLOAD_MARGIN: 2,
+  /** Background work limits. */
+  MAX_GEN_IN_FLIGHT: 6,
+  MAX_MESH_IN_FLIGHT: 8,
+  /** Generated columns integrated (light-stitched) per frame. */
+  COLUMNS_PER_FRAME: 2,
   SKY_COLOR: 0x9cc7e8,
-  FOG_DENSITY: 0.008,
+  /** Fog color when you're somewhere dark (caves). */
+  CAVE_FOG_COLOR: 0x07080b,
+  FOG_DENSITY: 0.0085,
   /** Block-edge grid line strength in the voxel shader (0 = off). */
-  GRID_LINE_STRENGTH: 0.14,
+  GRID_LINE_STRENGTH: 0.12,
   /** Per-block brightness jitter so flat colors read as separate blocks. */
   BLOCK_COLOR_JITTER: 0.05,
+  /** Directional face shading: [top, bottom, ±x sides, ±z sides]. */
+  FACE_SHADE: [1.0, 0.55, 0.86, 0.76],
+} as const;
+
+export const LIGHT = {
+  /** Brightness at light level 0 (so pitch-black caves are still barely readable). */
+  MIN_BRIGHTNESS: 0.035,
+  /** Each light level below 15 multiplies brightness by this. */
+  FALLOFF: 0.8,
+  /** Warm tint for torch/block light. */
+  TORCH_TINT: [1.0, 0.8, 0.55],
+  TORCH_LEVEL: 14,
+  /** Ambient-occlusion brightness for 0..3 occluding neighbors. */
+  AO: [1.0, 0.78, 0.62, 0.48],
+  /** Day brightness multiplier for sky light (Phase 6 animates this). */
+  DAYLIGHT: 1.0,
+} as const;
+
+export const BUILD = {
+  REACH: 6,
+  /** Seconds between placements while holding place. */
+  PLACE_REPEAT: 0.22,
+  /** Mining speed multiplier (a basic pickaxe; tool tiers arrive with items in Phase 4). */
+  MINE_SPEED: 1,
 } as const;
 
 export const TEST_ARENA = {
@@ -428,11 +479,16 @@ export const KEYS = {
   block: ['Mouse2'],
   feint: ['KeyQ'],
   interact: ['KeyF'],
-  weapon1: ['Digit1'],
-  weapon2: ['Digit2'],
-  weapon3: ['Digit3'],
-  weapon4: ['Digit4'],
-  weapon5: ['Digit5'],
+  slot1: ['Digit1'],
+  slot2: ['Digit2'],
+  slot3: ['Digit3'],
+  slot4: ['Digit4'],
+  slot5: ['Digit5'],
+  slot6: ['Digit6'],
+  slot7: ['Digit7'],
+  slot8: ['Digit8'],
+  slot9: ['Digit9'],
+  build: ['KeyB'],
   dummyMode: ['KeyG'],
   dummyReset: ['KeyH'],
   reset: ['KeyR'],

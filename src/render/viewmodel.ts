@@ -23,6 +23,8 @@ const P = (px: number, py: number, pz: number, rx: number, ry: number, rz: numbe
 
 const REST = P(0.3, -0.34, -0.55, -0.45, 0.25, -0.2);
 const PARRY = P(0.02, -0.14, -0.5, -0.25, 0, 1.45);
+const PICK_REST = P(0.34, -0.36, -0.5, -0.2, 0.3, 0.9);
+const PICK_HIT = P(0.24, -0.3, -0.62, -1.3, 0.2, 0.9);
 const STAGGER = P(0.32, -0.62, -0.5, 0.2, 0.3, -0.6);
 const WINDUP: Record<AttackDir, Pose> = {
   slashR: P(-0.05, -0.1, -0.42, -1.25, 1.45, 0.35),
@@ -123,6 +125,9 @@ export class Viewmodel {
   private bob = 0;
   private time = 0;
   private readonly glow = new Color();
+  private readonly pickaxe = new Group();
+  private pickSwing = 0;
+  private placePulse = 0;
 
   constructor() {
     this.scene.add(this.root);
@@ -134,15 +139,35 @@ export class Viewmodel {
     sun.position.set(0.4, 1, 0.3);
     this.scene.add(sun);
     for (const w of WEAPONS) this.models.push(buildModel(w));
+    box(this.pickaxe, 0.045, 0.62, 0.045, 0, 0.2, 0, 0x6b4a2b);
+    box(this.pickaxe, 0.5, 0.07, 0.07, 0, 0.5, 0, 0x8d949e);
+    box(this.pickaxe, 0.08, 0.1, 0.08, 0.22, 0.47, 0, 0x8d949e);
+    box(this.pickaxe, 0.08, 0.1, 0.08, -0.22, 0.47, 0, 0x8d949e);
+    this.pickaxe.visible = false;
+    this.right.group.add(this.pickaxe);
+  }
+
+  /** Quick jab when a block is placed. */
+  pulse(): void {
+    this.placePulse = 1;
   }
 
   kick(amount: number = VIEWMODEL.RECOIL_HIT): void {
     this.recoil = Math.max(this.recoil, amount);
   }
 
-  update(dt: number, camera: PerspectiveCamera, c: PlayerCombat, p: Player, mouseDx: number, mouseDy: number): void {
+  update(
+    dt: number,
+    camera: PerspectiveCamera,
+    c: PlayerCombat,
+    p: Player,
+    mouseDx: number,
+    mouseDy: number,
+    build: { enabled: boolean; mining: boolean } = { enabled: false, mining: false },
+  ): void {
     this.time += dt;
     if (c.weaponIndex !== this.current) this.setWeapon(c.weaponIndex);
+    this.setBuildMode(build.enabled);
     this.root.position.copy(camera.position);
     this.root.quaternion.copy(camera.quaternion);
 
@@ -155,6 +180,17 @@ export class Viewmodel {
     const hs = p.grounded && p.state === 'ground' ? p.horizontalSpeed() : 0;
     this.bob += hs * dt * 1.6;
     const bobAmt = Math.min(hs / 10, 1) * VIEWMODEL.BOB_AMOUNT;
+
+    if (build.enabled) {
+      // Pickaxe: chop while mining, jab on place.
+      this.pickSwing = build.mining ? this.pickSwing + dt * 11 : 0;
+      this.placePulse = Math.max(0, this.placePulse - dt * 7);
+      const chop = build.mining ? Math.max(0, Math.sin(this.pickSwing)) : 0;
+      const pose = lerpPose(PICK_REST, PICK_HIT, chop);
+      pose.pz -= this.placePulse * 0.15;
+      this.applyHand(this.right, pose, dt, bobAmt, 1);
+      return;
+    }
 
     const w = c.weapon;
     const swingHand = c.swing?.hand ?? 1;
@@ -226,6 +262,15 @@ export class Viewmodel {
       default:
         return REST;
     }
+  }
+
+  private setBuildMode(on: boolean): void {
+    if (this.pickaxe.visible === on) return;
+    this.pickaxe.visible = on;
+    const m = this.models[this.current];
+    m.right.visible = !on;
+    if (m.left) m.left.visible = !on;
+    this.right.pose = { ...STAGGER };
   }
 
   private setWeapon(i: number): void {

@@ -80,3 +80,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-f
 
 .dead { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(40,0,0,.45); font-size: 64px; font-weight: 800; letter-spacing: 12px; color: #d8242c; text-shadow: 0 4px 0 #000; }
 .dead.on { display: flex; }
+
+/* --- Build mode + loading --- */
+.palette { position: absolute; left: 50%; bottom: 134px; transform: translateX(-50%); display: none; gap: 4px; }
+.palette.on { display: flex; }
+.palette .slot { width: 34px; height: 34px; border: 2px solid rgba(0,0,0,.6); position: relative; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+.palette .slot.sel { border-color: #fff; transform: translateY(-4px); }
+.palette .slot span { position: absolute; left: 2px; top: 0; font-size: 10px; text-shadow: 0 1px 0 #000; }
+.buildtag { position: absolute; left: 50%; bottom: 176px; transform: translateX(-50%); font-size: 12px; letter-spacing: 2px; color: #ffcf4a; display: none; text-shadow: 0 1px 0 #000; }
+.buildtag.on { display: block; }
+.loading { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px; background: #0b0d12; font-size: 14px; letter-spacing: 3px; z-index: 5; }
+.loading.on { display: flex; }
+.loading b { font-size: 30px; letter-spacing: 8px; }

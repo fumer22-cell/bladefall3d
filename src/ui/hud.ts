@@ -3,7 +3,9 @@ import { COMBAT, DUMMY, MOVE, WEAPONS } from '../config';
 import { DEG } from '../core/math';
 import type { CombatSystem } from '../combat/combatSystem';
 import { DUMMY_MODE_LABELS, type Dummy } from '../combat/trainingDummy';
+import { BUILD_PALETTE, type Builder } from '../player/builder';
 import type { Player } from '../player/player';
+import { BLOCKS } from '../world/blocks';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -22,7 +24,8 @@ const CONTROLS: [string, string][] = [
   ['RMB', 'Parry (tap right before a hit) / guard (hold)'],
   ['Q', 'Feint a heavy'],
   ['F or LMB', 'Deathblow a staggered enemy'],
-  ['1 – 5', 'Sword, greatsword, daggers, spear, gauntlets'],
+  ['1 – 5 / wheel', 'Sword, greatsword, daggers, spear, gauntlets'],
+  ['B', 'Build mode: hold LMB mine, RMB place, 1 – 9 / wheel pick block'],
   ['G / H', 'Dummy mode / move dummy in front of you'],
   ['R / T / F3', 'Respawn / slow-mo / debug'],
 ];
@@ -60,6 +63,12 @@ export class Hud {
   private readonly deadEl: HTMLDivElement;
   private readonly hudRoot: HTMLDivElement;
   readonly overlay: HTMLDivElement;
+  private readonly palette: HTMLDivElement;
+  private readonly paletteSlots: HTMLDivElement[] = [];
+  private readonly buildTag: HTMLDivElement;
+  private readonly loading: HTMLDivElement;
+  private readonly loadingText: HTMLDivElement;
+  private worldInfo = '';
   private debugOn = false;
   private fps = 60;
   private lagHealth: number = COMBAT.PLAYER_MAX_HEALTH;
@@ -106,6 +115,19 @@ export class Hud {
       heal: { el: el('div', 'flash heal', hud), v: 0 },
     };
 
+    this.palette = el('div', 'palette', hud);
+    BUILD_PALETTE.forEach((id, i) => {
+      const slot = el('div', 'slot', this.palette);
+      slot.style.background = `#${BLOCKS[id].color.toString(16).padStart(6, '0')}`;
+      slot.title = BLOCKS[id].name;
+      el('span', '', slot).textContent = `${i + 1}`;
+      this.paletteSlots.push(slot);
+    });
+    this.buildTag = el('div', 'buildtag', hud);
+    this.loading = el('div', 'loading', root);
+    this.loading.innerHTML = '<b>BLADEFALL</b>';
+    this.loadingText = el('div', '', this.loading);
+
     this.debugEl = el('div', 'debug', hud);
     this.slowmo = el('div', 'flag', hud);
     this.slowmo.textContent = 'SLOW-MO';
@@ -116,7 +138,7 @@ export class Hud {
     const panel = el('div', 'panel', this.overlay);
     panel.innerHTML = `
       <h1>BLADEFALL</h1>
-      <p class="sub">Phase 2: melee combat vs. a training dummy</p>
+      <p class="sub">Phase 3: procedural world, mining, building, light</p>
       <table>${CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
       <div class="go">Click to play</div>`;
   }
@@ -127,6 +149,22 @@ export class Hud {
 
   onHeal(): void {
     this.healGlow = 1;
+  }
+
+  setLoading(on: boolean, jobs: number): void {
+    this.loading.classList.toggle('on', on);
+    if (on) this.loadingText.textContent = `Generating world… (${jobs} columns in progress)`;
+  }
+
+  updateBuild(b: Builder, worldInfo: string): void {
+    this.worldInfo = worldInfo;
+    this.palette.classList.toggle('on', b.enabled);
+    this.buildTag.classList.toggle('on', b.enabled);
+    if (!b.enabled) return;
+    this.paletteSlots.forEach((s, i) => s.classList.toggle('sel', i === b.selected));
+    const name = BLOCKS[b.selectedBlock].name.replace(/_/g, ' ');
+    const target = b.target ? ` · looking at ${BLOCKS[b.target.id].name.replace(/_/g, ' ')}` : '';
+    this.buildTag.textContent = `BUILD MODE [B] · ${name}${target}`;
   }
 
   toggleDebug(): void {
@@ -203,7 +241,8 @@ export class Hud {
         `combat   ${c.phase} ${c.t.toFixed(2)}${c.swing ? ` ${c.swing.heavy ? 'heavy' : 'light'}#${c.swing.comboIndex} ${c.currentDir()}` : ''}\n` +
         `parry    ${c.isPerfectParry() ? 'PERFECT' : c.isGuarding() ? 'guard' : '-'}  lockout ${c.parryLockout.toFixed(2)}\n` +
         `posture  ${c.posture.value.toFixed(1)}   perfect parries ${c.perfectParries}\n` +
-        (d0 ? `dummy    ${d0.phase} ${d0.t.toFixed(2)} hp ${d0.health.toFixed(0)} post ${d0.posture.value.toFixed(0)}\n` : '');
+        (d0 ? `dummy    ${d0.phase} ${d0.t.toFixed(2)} hp ${d0.health.toFixed(0)} post ${d0.posture.value.toFixed(0)}\n` : '') +
+        this.worldInfo;
     }
   }
 
