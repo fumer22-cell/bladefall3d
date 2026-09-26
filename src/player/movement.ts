@@ -62,6 +62,13 @@ export function stepMovement(p: Player, input: MoveIntent, world: VoxelQuery, dt
   if (p.grounded && input.crouchPressed && p.state === 'dash') startSlide(p, wish);
   if (p.jumpBuffer > 0) tryJump(p, world);
 
+  // Variable jump height: letting go of jump while still rising cuts the jump short.
+  if (p.jumpWasHeld && !input.jumpHeld && p.jumpCuttable && p.state === 'air' && p.vel.y > 0) {
+    p.vel.y *= MOVE.JUMP_CUT_MULT;
+    p.jumpCuttable = false;
+  }
+  p.jumpWasHeld = input.jumpHeld;
+
   // --- Per-state velocity ---
   switch (p.state) {
     case 'dash':
@@ -183,6 +190,7 @@ function tryJump(p: Player, world: VoxelQuery): void {
       p.vel.z = p.dashDirZ * s;
       p.events.push({ type: 'dashJump' });
     }
+    p.jumpCuttable = p.slamBounceTimer <= 0;
     if (p.slamBounceTimer > 0) {
       vy = Math.max(vy, MOVE.JUMP_VELOCITY) + p.slamBounceBonus;
       p.slamBounceTimer = 0;
@@ -207,6 +215,7 @@ function tryJump(p: Player, world: VoxelQuery): void {
     p.vel.x = tx * MOVE.WALL_JUMP_TANGENT_KEEP + nx * MOVE.WALL_JUMP_PUSH;
     p.vel.z = tz * MOVE.WALL_JUMP_TANGENT_KEEP + nz * MOVE.WALL_JUMP_PUSH;
     p.vel.y = MOVE.WALL_JUMP_UP;
+    p.jumpCuttable = false;
     p.wallJumpsLeft--;
     p.state = 'air';
     p.jumpBuffer = 0;
@@ -268,7 +277,8 @@ function updateAir(p: Player, wish: Wish, dt: number): void {
     p.vel.x *= k;
     p.vel.z *= k;
   }
-  p.vel.y = Math.max(p.vel.y - MOVE.GRAVITY * dt, -MOVE.MAX_FALL_SPEED);
+  const g = p.vel.y < 0 ? MOVE.GRAVITY * MOVE.FALL_GRAVITY_MULT : MOVE.GRAVITY;
+  p.vel.y = Math.max(p.vel.y - g * dt, -MOVE.MAX_FALL_SPEED);
 
   // Wall slide: pushing into a wall slows the fall.
   if (p.touchingWall && wish.has && p.vel.y < -MOVE.WALL_SLIDE_MAX_FALL) {

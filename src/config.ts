@@ -25,16 +25,18 @@ export const PLAYER = {
 } as const;
 
 export const MOVE = {
-  GRAVITY: 32,
-  MAX_FALL_SPEED: 60,
+  GRAVITY: 46,
+  /** Gravity multiplier while falling: snappier arcs, less hang time. */
+  FALL_GRAVITY_MULT: 1.35,
+  MAX_FALL_SPEED: 72,
 
   // --- Ground ---
   RUN_SPEED: 10,
-  GROUND_ACCEL: 90,
+  GROUND_ACCEL: 150,
   /** Decel when there's no input. */
-  GROUND_DECEL: 70,
+  GROUND_DECEL: 130,
   /** Decel applied to speed above RUN_SPEED while grounded (sheds momentum from slides/dashes). */
-  GROUND_OVERSPEED_DECEL: 30,
+  GROUND_OVERSPEED_DECEL: 40,
   /** After landing, overspeed isn't bled off for this long, so a quick re-jump keeps momentum. */
   LANDING_FRICTION_GRACE: 0.1,
 
@@ -43,21 +45,23 @@ export const MOVE = {
 
   // --- Air ---
   /** Air acceleration toward wish direction (strong air control). */
-  AIR_ACCEL: 60,
+  AIR_ACCEL: 80,
   /** Speed above RUN_SPEED decays by this much per second in the air. */
   AIR_OVERSPEED_DRAG: 1.5,
 
   // --- Jump ---
-  JUMP_VELOCITY: 11,
-  COYOTE_TIME: 0.12,
+  JUMP_VELOCITY: 13.2,
+  /** Releasing jump while rising multiplies upward speed by this (short hops). */
+  JUMP_CUT_MULT: 0.45,
+  COYOTE_TIME: 0.1,
   JUMP_BUFFER: 0.12,
 
   // --- Dash ---
   DASH_PIPS: 3,
   /** Seconds to regenerate one pip. */
   DASH_REGEN_TIME: 0.9,
-  DASH_SPEED: 28,
-  DASH_TIME: 0.17,
+  DASH_SPEED: 32,
+  DASH_TIME: 0.14,
   DASH_IFRAMES: 0.2,
   /** Horizontal speed kept when a dash ends normally. */
   DASH_EXIT_SPEED: 14,
@@ -73,26 +77,26 @@ export const MOVE = {
   SLIDE_STEER_RATE: 1.2,
   /** Slide-jump multiplies horizontal speed by this. */
   SLIDE_JUMP_BOOST: 1.1,
-  SLIDE_JUMP_VELOCITY: 10,
+  SLIDE_JUMP_VELOCITY: 12,
 
   // --- Ground slam ---
-  SLAM_SPEED: 48,
+  SLAM_SPEED: 62,
   /** Fraction of horizontal speed kept when a slam starts. */
   SLAM_HORIZONTAL_KEEP: 0,
   /** Time after landing from a slam in which a jump becomes a slam-bounce. */
   SLAM_BOUNCE_WINDOW: 0.18,
   /** Extra jump velocity per block fallen during the slam. */
-  SLAM_BOUNCE_PER_BLOCK: 1.1,
-  SLAM_BOUNCE_MAX_BONUS: 16,
+  SLAM_BOUNCE_PER_BLOCK: 1.35,
+  SLAM_BOUNCE_MAX_BONUS: 19,
   /** Minimum extra velocity for any slam-bounce. */
-  SLAM_BOUNCE_MIN_BONUS: 4,
+  SLAM_BOUNCE_MIN_BONUS: 5,
 
   // --- Wall jump ---
   WALL_JUMPS_MAX: 3,
   /** How far outside the hitbox we look for a wall. */
   WALL_CHECK_DIST: 0.25,
-  WALL_JUMP_PUSH: 10,
-  WALL_JUMP_UP: 11,
+  WALL_JUMP_PUSH: 11,
+  WALL_JUMP_UP: 13.5,
   /** Fraction of along-wall velocity kept on a wall jump. */
   WALL_JUMP_TANGENT_KEEP: 0.9,
   /** Max fall speed while pushing into a wall. */
@@ -103,7 +107,7 @@ export const MOVE = {
   WATER_MAX_SINK: 3,
   WATER_SPEED_MULT: 0.55,
   /** Vertical speed approached while holding jump in water. */
-  SWIM_UP_SPEED: 5,
+  SWIM_UP_SPEED: 6,
   /** Upward kick when swimming against a ledge, to climb out. */
   WATER_EXIT_BOOST: 8,
   /** Horizontal drag (1/s) above swim speed. */
@@ -116,6 +120,8 @@ export const CAMERA = {
   FAR: 600,
   /** Mouse sensitivity (radians per pixel). */
   MOUSE_SENSITIVITY: 0.0022,
+  /** A single mouse event moving more than this (px) is treated as a glitch and ignored. */
+  MOUSE_SPIKE_PX: 250,
   PITCH_LIMIT: 89,
 
   FOV_BLEND_RATE: 10,

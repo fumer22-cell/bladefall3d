@@ -60,6 +60,10 @@ export class Player {
   /** Time since landing. */
   groundTime = 0;
   jumpedSinceGround = false;
+  /** A jump that can still be shortened by releasing the button. */
+  jumpCuttable = false;
+  /** Jump button state last step (to detect release). */
+  jumpWasHeld = false;
 
   /** Multiplier on run speed / air control (guarding, heavy windups, stagger). */
   speedMult = 1;

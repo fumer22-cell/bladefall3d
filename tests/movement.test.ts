@@ -294,3 +294,40 @@ describe('water', () => {
     expect(p.pos.y).toBeGreaterThan(y);
   });
 });
+
+describe('snappy jumps', () => {
+  it('releasing jump early gives a shorter hop', () => {
+    const w = flatWorld();
+    const full = playerOnGround(w);
+    step(full, w, { jumpPressed: true, jumpHeld: true });
+    let fullApex = 0;
+    for (let i = 0; i < 120; i++) {
+      step(full, w, { jumpHeld: true });
+      fullApex = Math.max(fullApex, full.pos.y - 4);
+    }
+    const hop = playerOnGround(w);
+    step(hop, w, { jumpPressed: true, jumpHeld: true });
+    step(hop, w, { jumpHeld: true }, 3);
+    let hopApex = 0;
+    for (let i = 0; i < 120; i++) {
+      step(hop, w, {});
+      hopApex = Math.max(hopApex, hop.pos.y - 4);
+    }
+    expect(hopApex).toBeLessThan(fullApex * 0.6);
+    expect(fullApex).toBeGreaterThan(1.7);
+  });
+
+  it('falls faster than it rises', () => {
+    const w = flatWorld();
+    const p = playerOnGround(w);
+    step(p, w, { jumpPressed: true, jumpHeld: true });
+    let up = 0, down = 0, rising = true;
+    for (let i = 0; i < 120 && !(p.grounded && i > 2); i++) {
+      step(p, w, { jumpHeld: true });
+      if (p.vel.y > 0) up++;
+      else if (!p.grounded) { rising = false; down++; }
+    }
+    expect(rising).toBe(false);
+    expect(down).toBeLessThan(up);
+  });
+});

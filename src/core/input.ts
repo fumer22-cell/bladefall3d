@@ -1,4 +1,4 @@
-import { KEYS, type Action } from '../config';
+import { CAMERA, KEYS, type Action } from '../config';
 
 const codeToAction = new Map<string, Action>();
 for (const [action, codes] of Object.entries(KEYS) as [Action, readonly string[]][]) {
@@ -22,6 +22,8 @@ export class Input {
   private mouseDX = 0;
   private mouseDY = 0;
   private wheel = 0;
+  /** Mouse events to discard right after locking. */
+  private ignoreMoves = 0;
   locked = false;
 
   constructor(private readonly canvas: HTMLElement) {
@@ -63,18 +65,47 @@ export class Input {
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
+      // Browsers occasionally report one absurd movement (notably right after locking, or a
+      // Chrome pointer-lock bug when the OS cursor would cross a screen edge). Drop those
+      // instead of letting them snap the camera straight up or down.
+      if (this.ignoreMoves > 0) {
+        this.ignoreMoves--;
+        return;
+      }
+      if (Math.abs(e.movementX) > CAMERA.MOUSE_SPIKE_PX || Math.abs(e.movementY) > CAMERA.MOUSE_SPIKE_PX) return;
       this.mouseDX += e.movementX;
       this.mouseDY += e.movementY;
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
       if (!this.locked) this.held.clear();
+      else {
+        this.mouseDX = this.mouseDY = 0;
+        this.ignoreMoves = 2;
+      }
     });
   }
 
   requestLock(): void {
-    const req = this.canvas.requestPointerLock() as unknown;
-    if (req instanceof Promise) req.catch(() => {});
+    // Raw (unaccelerated) input avoids the OS acceleration curve and the movement spikes that
+    // come with it. Not every browser supports it, so fall back to a plain lock.
+    type LockFn = (opts?: { unadjustedMovement?: boolean }) => Promise<void> | void;
+    const lock = this.canvas.requestPointerLock.bind(this.canvas) as LockFn;
+    try {
+      const req = lock({ unadjustedMovement: true });
+      if (req instanceof Promise) req.catch(() => this.plainLock(lock));
+    } catch {
+      this.plainLock(lock);
+    }
+  }
+
+  private plainLock(lock: (opts?: { unadjustedMovement?: boolean }) => Promise<void> | void): void {
+    try {
+      const req = lock();
+      if (req instanceof Promise) req.catch(() => {});
+    } catch {
+      /* the page shows the click-to-play overlay again */
+    }
   }
 
   isHeld(a: Action): boolean {
