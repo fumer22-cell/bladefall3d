@@ -197,8 +197,39 @@ export const BUILD = {
   REACH: 6,
   /** Seconds between placements while holding place. */
   PLACE_REPEAT: 0.22,
-  /** Mining speed multiplier (a basic pickaxe; tool tiers arrive with items in Phase 4). */
-  MINE_SPEED: 1,
+  /** Mining speed with bare hands (block hardness is in seconds at speed 1). */
+  HAND_SPEED: 1,
+} as const;
+
+/** Tool/weapon material tiers. `tier` gates which blocks a pickaxe can mine. */
+export const TIERS = {
+  HAND: { tier: 0, mineSpeed: 1 },
+  WOOD: { tier: 1, mineSpeed: 2 },
+  COPPER: { tier: 2, mineSpeed: 3 },
+  IRON: { tier: 3, mineSpeed: 4.5 },
+  /** Weapon damage & posture multipliers per material. */
+  WEAPON_MULT: { RUSTY: 0.8, COPPER: 1.0, IRON: 1.35 },
+} as const;
+
+export const INVENTORY = {
+  SLOTS: 36,
+  HOTBAR: 9,
+  MAX_STACK: 64,
+  /** Crafting stations count if they're within this many blocks of you. */
+  STATION_RADIUS: 4,
+  /** Dropped items fly to you inside this radius and are picked up inside PICKUP_RADIUS. */
+  MAGNET_RADIUS: 3.5,
+  PICKUP_RADIUS: 1.2,
+  MAGNET_SPEED: 12,
+  /** Dropped items despawn after this long (s). */
+  DROP_LIFETIME: 300,
+} as const;
+
+export const SAVE = {
+  DB_NAME: 'bladefall',
+  DB_VERSION: 1,
+  /** Seconds between autosaves. */
+  AUTOSAVE_INTERVAL: 45,
 } as const;
 
 export const TEST_ARENA = {
@@ -488,7 +519,8 @@ export const KEYS = {
   slot7: ['Digit7'],
   slot8: ['Digit8'],
   slot9: ['Digit9'],
-  build: ['KeyB'],
+  inventory: ['KeyE', 'Tab'],
+  debugKit: ['KeyK'],
   dummyMode: ['KeyG'],
   dummyReset: ['KeyH'],
   reset: ['KeyR'],

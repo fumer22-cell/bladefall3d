@@ -157,8 +157,8 @@ export class CombatSystem {
         return;
       }
 
-      let damage = s.def.damage * dirMod.damage;
-      let posture = s.def.posture * dirMod.posture;
+      let damage = s.def.damage * dirMod.damage * combat.materialMult;
+      let posture = s.def.posture * dirMod.posture * combat.materialMult;
       const crit = s.riposte;
       if (crit) {
         damage *= w.riposteMult;

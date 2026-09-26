@@ -3,8 +3,16 @@ import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
 import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, PARTICLES, PLAYER, SIM, TEST_ARENA, WEAPONS, WORLD, type Action } from '../config';
-import { Builder } from '../player/builder';
+import { CAMERA, COMBAT, PARTICLES, PLAYER, SAVE, SIM, TEST_ARENA, WORLD, type Action } from '../config';
+import { craft, nearbyStations } from '../items/crafting';
+import { Drops } from '../items/drops';
+import { Inventory } from '../items/inventory';
+import { ITEMS } from '../items/items';
+import { Builder, tierName } from '../player/builder';
+import { saveDb } from '../save/db';
+import { editsFromSave, editsToSave, type SaveData } from '../save/serialize';
+import { DropView } from '../render/dropView';
+import { InventoryUI } from '../ui/inventoryUI';
 import { NO_INTENT, stepMovement, type MoveIntent } from '../player/movement';
 import { Player } from '../player/player';
 import { BlockHighlight } from '../render/blockHighlight';
@@ -15,7 +23,7 @@ import { Particles } from '../render/particles';
 import { ProjectileView } from '../render/projectileView';
 import { Renderer } from '../render/renderer';
 import { setFogColor } from '../render/voxelMaterial';
-import { Viewmodel } from '../render/viewmodel';
+import { Viewmodel, type HeldHand } from '../render/viewmodel';
 import { Hud } from '../ui/hud';
 import { COLOR, SHAPE, SOLID } from '../world/blocks';
 import { CS, WORLD_H } from '../world/chunk';
@@ -30,6 +38,14 @@ import { clamp, damp, DEG } from './math';
 const SLOT_KEYS: Action[] = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8', 'slot9'];
 
 export type GameMode = 'world' | 'arena';
+
+export interface GameOptions {
+  mode: GameMode;
+  /** World to play (world mode). New worlds come from the menu as a fresh SaveData. */
+  save?: SaveData;
+  /** Write progress back to IndexedDB. */
+  persist?: boolean;
+}
 
 const hexRGB = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 const SKY_RGB = hexRGB(WORLD.SKY_COLOR);
@@ -60,11 +76,24 @@ export class Game {
   private frameMouseDx = 0;
   private frameMouseDy = 0;
   private caveMix = 0;
+  readonly mode: GameMode;
+  readonly inventory = new Inventory();
+  readonly drops = new Drops();
+  private readonly dropView: DropView;
+  private readonly inventoryUI: InventoryUI;
+  /** The save this session writes to (null in the arena). */
+  private readonly save: SaveData | null;
+  private readonly persist: boolean;
+  private autosaveTimer: number = SAVE.AUTOSAVE_INTERVAL;
+  private saving = false;
+  /** Seconds played since the last save. */
+  private playTime = 0;
 
-  constructor(
-    root: HTMLElement,
-    readonly mode: GameMode = 'world',
-  ) {
+  constructor(root: HTMLElement, opts: GameOptions = { mode: 'world' }) {
+    this.mode = opts.mode;
+    this.save = opts.save ?? null;
+    this.persist = opts.persist ?? false;
+    const mode = this.mode;
     this.renderer = new Renderer(root);
     this.input = new Input(this.renderer.canvas);
     this.hud = new Hud(root);
@@ -72,9 +101,39 @@ export class Game {
       unlockAudio();
       this.input.requestLock();
     });
-    document.addEventListener('pointerlockchange', () => this.hud.setOverlay(!this.input.locked));
+    this.hud.quitButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void this.saveNow().finally(() => location.reload());
+    });
+    this.inventoryUI = new InventoryUI(
+      root,
+      this.inventory,
+      () => nearbyStations(this.world, this.player.pos.x, this.player.pos.y + 1, this.player.pos.z),
+      (r, times) => {
+        const stations = nearbyStations(this.world, this.player.pos.x, this.player.pos.y + 1, this.player.pos.z);
+        let n = 0;
+        while (n < times && craft(this.inventory, r, stations)) n++;
+        if (n > 0) play('place');
+      },
+      () => {
+        // The key that closed the inventory must not also count as "open inventory" once relocked.
+        this.input.consumePress('inventory');
+        this.input.requestLock();
+      },
+    );
+    document.addEventListener('pointerlockchange', () => {
+      if (this.input.locked) this.hud.setOverlay(false);
+      else if (!this.inventoryUI.isOpen) {
+        this.hud.setOverlay(true);
+        void this.saveNow();
+      }
+    });
+    document.addEventListener('pointerlockerror', () => this.hud.setOverlay(true));
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) void this.saveNow();
+    });
 
-    this.seed = WORLD.SEED || Math.floor(Math.random() * 2 ** 31);
+    this.seed = this.save?.seed ?? (WORLD.SEED || Math.floor(Math.random() * 2 ** 31));
     if (mode === 'arena') {
       buildTestArena(this.world);
       this.world.lightAll();
@@ -85,17 +144,36 @@ export class Game {
     } else {
       const pool = new WorkerPool();
       this.world.recordEdits = true;
+      if (this.save) for (const [k, v] of editsFromSave(this.save.edits)) this.world.edits.set(k, v);
       this.chunks = new ChunkRenderer(this.renderer.scene, pool);
       this.streamer = new WorldStreamer(this.world, pool, this.seed);
-      this.spawnPoint.set(8.5, WORLD.SEA_LEVEL + 20, 8.5);
+      const sp = this.save?.player;
+      if (sp) this.spawnPoint.set(...sp.spawn);
+      else this.spawnPoint.set(8.5, WORLD.SEA_LEVEL + 20, 8.5);
+    }
+
+    const sp = this.save?.player;
+    if (sp) {
+      this.inventory.load(sp.inventory, sp.selected);
+    } else {
+      // Starting kit.
+      this.inventory.add('rusty_sword', 1);
+      this.inventory.add('torch', 8);
     }
 
     this.highlight = new BlockHighlight(this.renderer.scene);
     this.combat = new CombatSystem(this.player, this.world, () => this.respawn());
     this.particles = new Particles(this.renderer.scene, this.world);
     this.projectileView = new ProjectileView(this.renderer.scene);
+    this.dropView = new DropView(this.renderer.scene);
     this.addDummy(this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z - 6);
     this.respawn();
+    if (sp) {
+      this.player.teleport(sp.x, sp.y, sp.z);
+      this.player.yaw = sp.yaw;
+      this.player.pitch = sp.pitch;
+      this.combat.combat.health = sp.health;
+    }
     this.wireFeedback();
 
     this.loop = new FixedLoop(
@@ -131,9 +209,15 @@ export class Game {
     return -1;
   }
 
-  /** Once the spawn area is loaded, pick a dry spot near the origin. */
+  /** Once the spawn area is loaded, pick a dry spot near the origin (or resume a save where it left off). */
   private trySpawn(): void {
-    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (!this.world.column(dx, dz)) return;
+    const pcx = Math.floor(this.player.pos.x / CS), pcz = Math.floor(this.player.pos.z / CS);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (!this.world.column(pcx + dx, pcz + dz)) return;
+    if (this.save?.player) {
+      this.ready = true;
+      this.placeDummyInFront(6);
+      return;
+    }
     for (let r = 0; r < 24 && !this.ready; r++) {
       for (let a = 0; a < Math.max(1, r * 6); a++) {
         const x = 8 + Math.round(Math.cos((a / Math.max(1, r * 6)) * Math.PI * 2) * r);
@@ -249,7 +333,7 @@ export class Game {
 
   private combatIntent(dashed: boolean): CombatIntent {
     const i = this.input;
-    if (!i.locked || this.builder.enabled) return { ...NO_COMBAT_INTENT, dashed };
+    if (!i.locked || !this.combat.combat.armed) return { ...NO_COMBAT_INTENT, dashed };
     return {
       attackPressed: i.wasPressed('attack'),
       attackHeld: i.isHeld('attack'),
@@ -266,6 +350,7 @@ export class Game {
       input.endStep();
       return;
     }
+    this.syncHeld();
     const move = this.moveIntent(combat.inputLocked());
     const dashed = move.dashPressed && player.dashPips >= 1;
     stepMovement(player, move, this.world, dt);
@@ -282,6 +367,7 @@ export class Game {
       },
       this.world,
       [player.box(), ...combat.dummies.filter((d) => d.alive).map((d) => d.hurtbox())],
+      this.inventory,
     );
     for (const e of b.events) {
       if (e.type === 'broken') {
@@ -289,13 +375,22 @@ export class Game {
           { x: e.x + 0.5, y: e.y + 0.5, z: e.z + 0.5 },
           { count: 24, color: COLOR[e.id], speed: 4, life: 0.9, size: 0.12 },
         );
+        if (e.drop) this.drops.spawn(e.x + 0.5, e.y + 0.5, e.z + 0.5, e.drop);
         play('break');
       } else if (e.type === 'placed') {
         this.viewmodel.pulse();
         play('place');
+      } else if (e.type === 'tooWeak') {
+        this.hud.toast(`Needs ${tierName(e.needed)}`);
       } else play('dig');
     }
     b.events.length = 0;
+
+    const chest = new Vector3(player.pos.x, player.pos.y + 0.9, player.pos.z);
+    for (const got of this.drops.update(dt, this.world, chest, this.inventory)) {
+      this.hud.pickup(got.item, got.count);
+      play('pickup');
+    }
 
     if (player.pos.y < -30) this.respawn();
     input.endStep();
@@ -321,16 +416,26 @@ export class Game {
       this.slowmo = !this.slowmo;
       this.hud.setSlowmo(this.slowmo);
     }
-    if (input.consumePress('build')) builder.enabled = !builder.enabled;
     SLOT_KEYS.forEach((k, i) => {
-      if (!input.consumePress(k)) return;
-      if (builder.enabled) builder.select(i);
-      else if (i < WEAPONS.length) combat.combat.setWeapon(i);
+      if (input.consumePress(k)) this.inventory.select(i);
     });
     const wheel = input.takeWheel();
-    if (wheel !== 0) {
-      if (builder.enabled) builder.select(builder.selected + wheel);
-      else combat.combat.setWeapon((combat.combat.weaponIndex + wheel + WEAPONS.length) % WEAPONS.length);
+    if (wheel !== 0) this.inventory.select(this.inventory.selected + wheel);
+    if (input.consumePress('inventory') && input.locked && this.ready) {
+      this.inventoryUI.open();
+      document.exitPointerLock();
+    }
+    if (input.consumePress('debugKit') && this.hud.debugVisible) this.giveDebugKit();
+    this.inventoryUI.update(frameDt);
+    const hand = this.syncHeld();
+
+    if (this.ready && this.persist) {
+      this.autosaveTimer -= frameDt;
+      if (this.autosaveTimer <= 0) {
+        this.autosaveTimer = SAVE.AUTOSAVE_INTERVAL;
+        void this.saveNow();
+      }
+      if (input.locked) this.playTime += frameDt;
     }
     if (input.consumePress('dummyMode')) {
       for (const d of combat.dummies) d.setMode(DUMMY_MODES[(DUMMY_MODES.indexOf(d.mode) + 1) % DUMMY_MODES.length]);
@@ -358,18 +463,72 @@ export class Game {
 
     builder.aim(this.world, cam.position, combat.lookDir());
     this.highlight.update(builder.target, builder.progress, builder.enabled);
-    this.viewmodel.update(frameDt, cam, combat.combat, player, this.frameMouseDx, this.frameMouseDy, {
-      enabled: builder.enabled,
-      mining: builder.enabled && builder.target !== null && input.locked && input.isHeld('attack'),
-    });
+    hand.mining = builder.enabled && builder.target !== null && input.locked && input.isHeld('attack');
+    this.viewmodel.update(frameDt, cam, combat.combat, player, this.frameMouseDx, this.frameMouseDy, hand);
     combat.dummies.forEach((d, i) => this.dummyViews[i].update(d, alpha, frameDt * this.loop.timeScale));
     this.projectileView.update(combat.projectiles, alpha);
     this.particles.update(frameDt * this.loop.timeScale);
     this.updateFog(frameDt);
     this.hud.update(player, combat, cam, frameDt);
-    this.hud.updateBuild(builder, this.debugWorldInfo());
+    this.hud.updateItems(this.inventory, builder, this.debugWorldInfo(), frameDt);
+    this.dropView.update(this.drops, alpha, frameDt);
     this.chunks.update(this.world, cam.position.x, cam.position.y, cam.position.z);
     this.renderer.render(this.viewmodel.scene);
+  }
+
+  /** Point combat and building at whatever is in hand. */
+  private syncHeld(): HeldHand {
+    const stack = this.inventory.held;
+    const held = stack ? ITEMS[stack.item] : undefined;
+    const c = this.combat.combat;
+    if (held?.weapon) {
+      c.setWeapon(held.weapon.index);
+      c.materialMult = held.weapon.mult;
+      c.armed = true;
+      this.builder.enabled = false;
+      return { kind: 'weapon', color: held.color, mining: false };
+    }
+    if (c.armed) c.disarm();
+    this.builder.enabled = true;
+    const kind = !held ? 'empty' : held.tool ? 'tool' : 'item';
+    return { kind, color: held?.color ?? 0, mining: false };
+  }
+
+  private giveDebugKit(): void {
+    const kit: [string, number][] = [
+      ['iron_pickaxe', 1], ['iron_sword', 1], ['iron_greatsword', 1], ['iron_daggers', 1], ['iron_spear', 1], ['iron_gauntlets', 1],
+      ['torch', 64], ['planks', 64], ['cobblestone', 64], ['stone_brick', 64], ['workbench', 1], ['forge', 1], ['anvil', 1],
+      ['coal', 32], ['copper_ingot', 16], ['iron_ingot', 16], ['stick', 32],
+    ];
+    for (const [id, n] of kit) this.inventory.add(id, n);
+    this.hud.toast('Test kit added');
+  }
+
+  /** Write the world + player to IndexedDB (no-op in the arena or when storage is unavailable). */
+  async saveNow(): Promise<void> {
+    if (!this.save || !this.persist || !this.ready || this.saving) return;
+    this.saving = true;
+    const p = this.player;
+    const s = this.save;
+    s.updatedAt = Date.now();
+    s.playTime += this.playTime;
+    this.playTime = 0;
+    s.player = {
+      x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch,
+      health: this.combat.combat.health,
+      inventory: this.inventory.serialize(),
+      selected: this.inventory.selected,
+      spawn: [this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z],
+    };
+    s.edits = editsToSave(this.world.edits);
+    try {
+      await saveDb.put(s);
+      this.hud.showSaved();
+    } catch {
+      this.hud.toast('Could not save (browser storage unavailable)', 3);
+    } finally {
+      this.saving = false;
+    }
   }
 
   /** Fade fog/sky toward near-black when the camera is somewhere without sky light (caves). */

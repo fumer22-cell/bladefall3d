@@ -22,7 +22,8 @@ export type SfxName =
   | 'death'
   | 'dig'
   | 'break'
-  | 'place';
+  | 'place'
+  | 'pickup';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -157,6 +158,9 @@ export function play(name: SfxName): void {
     case 'break':
       noise('lowpass', 900, 0.8, 0.45, 0.14);
       tone('sine', 120, 0.25, 0.1, 70);
+      break;
+    case 'pickup':
+      tone('sine', 880, 0.1, 0.06, 1320);
       break;
     case 'place':
       tone('sine', 220, 0.25, 0.07, 140);

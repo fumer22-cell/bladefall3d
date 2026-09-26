@@ -24,8 +24,11 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
 - **Phase 3 — procedural world:** streamed chunk columns generated in Web Workers (hills, ridged mountains,
   lakes, beaches, snow caps, caves and tunnels, coal/copper/iron veins, trees, small ruins), greedy meshing in
   workers with baked sky + torch light and ambient occlusion, mining and placing (press **B** for build mode),
-  swimming. Edits persist while you play (saving to disk arrives in Phase 4). Open `#arena` in the URL for the
-  flat test arena.
+  swimming. Open `#arena` in the URL for the flat test arena.
+- **Phase 4 — items, crafting, saving:** mined blocks drop items; 36-slot inventory with a 9-slot hotbar (the held
+  item decides whether the mouse fights, mines or places); pickaxe tiers gate ores; crafting by hand and at the
+  Workbench → Forge (smelting, copper gear) → Anvil (iron gear); copper and iron versions of all five weapons;
+  main menu with save slots stored in IndexedDB, autosave and save-on-pause.
 
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

@@ -58,6 +58,10 @@ let swingIds = 1;
 /** The player's melee state machine: attacks, combos, heavies, feints, parry and guard. */
 export class PlayerCombat {
   weaponIndex = 0;
+  /** Damage/posture multiplier of the held weapon's material (rusty, copper, iron…). */
+  materialMult = 1;
+  /** False when the held item isn't a weapon: no attacks or parries. */
+  armed = true;
   phase: CombatPhase = 'idle';
   /** Time in the current phase. */
   t = 0;
@@ -92,6 +96,15 @@ export class PlayerCombat {
     this.weaponIndex = i;
     this.toIdle();
     this.comboIndex = 0;
+  }
+
+  /** Put the weapon away (held item isn't a weapon): cancel any swing or guard. */
+  disarm(): void {
+    this.armed = false;
+    if (this.phase === 'windup' || this.phase === 'active' || this.phase === 'recovery' || this.phase === 'parry') {
+      this.swing = null;
+      this.toIdle();
+    }
   }
 
   /** Mouse movement since last call, applied to the swing direction while winding up. */

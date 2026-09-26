@@ -3,6 +3,7 @@ import {
   DirectionalLight,
   Group,
   HemisphereLight,
+  Mesh,
   MeshLambertMaterial,
   Scene,
   type PerspectiveCamera,
@@ -23,6 +24,15 @@ const P = (px: number, py: number, pz: number, rx: number, ry: number, rz: numbe
 
 const REST = P(0.3, -0.34, -0.55, -0.45, 0.25, -0.2);
 const PARRY = P(0.02, -0.14, -0.5, -0.25, 0, 1.45);
+export type HeldKind = 'weapon' | 'tool' | 'item' | 'empty';
+export interface HeldHand {
+  kind: HeldKind;
+  /** Item color (pickaxe head / held block). */
+  color: number;
+  mining: boolean;
+}
+
+const ITEM_REST = P(0.3, -0.3, -0.5, -0.3, 0.5, 0.2);
 const PICK_REST = P(0.34, -0.36, -0.5, -0.2, 0.3, 0.9);
 const PICK_HIT = P(0.24, -0.3, -0.62, -1.3, 0.2, 0.9);
 const STAGGER = P(0.32, -0.62, -0.5, 0.2, 0.3, -0.6);
@@ -126,6 +136,11 @@ export class Viewmodel {
   private time = 0;
   private readonly glow = new Color();
   private readonly pickaxe = new Group();
+  private readonly pickHeadMat = new MeshLambertMaterial({ color: 0x8d949e });
+  private readonly heldCube: Mesh;
+  private readonly heldCubeMat = new MeshLambertMaterial({ color: 0xffffff });
+  private readonly fist: Mesh;
+  private handKind: HeldKind | null = null;
   private pickSwing = 0;
   private placePulse = 0;
 
@@ -140,10 +155,12 @@ export class Viewmodel {
     this.scene.add(sun);
     for (const w of WEAPONS) this.models.push(buildModel(w));
     box(this.pickaxe, 0.045, 0.62, 0.045, 0, 0.2, 0, 0x6b4a2b);
-    box(this.pickaxe, 0.5, 0.07, 0.07, 0, 0.5, 0, 0x8d949e);
-    box(this.pickaxe, 0.08, 0.1, 0.08, 0.22, 0.47, 0, 0x8d949e);
-    box(this.pickaxe, 0.08, 0.1, 0.08, -0.22, 0.47, 0, 0x8d949e);
-    this.pickaxe.visible = false;
+    box(this.pickaxe, 0.5, 0.07, 0.07, 0, 0.5, 0, this.pickHeadMat);
+    box(this.pickaxe, 0.08, 0.1, 0.08, 0.22, 0.47, 0, this.pickHeadMat);
+    box(this.pickaxe, 0.08, 0.1, 0.08, -0.22, 0.47, 0, this.pickHeadMat);
+    this.heldCube = box(this.right.group, 0.16, 0.16, 0.16, 0, 0.12, 0, this.heldCubeMat);
+    this.fist = box(this.right.group, 0.11, 0.13, 0.16, 0, 0.02, 0, 0xc8956d);
+    this.pickaxe.visible = this.heldCube.visible = this.fist.visible = false;
     this.right.group.add(this.pickaxe);
   }
 
@@ -163,11 +180,11 @@ export class Viewmodel {
     p: Player,
     mouseDx: number,
     mouseDy: number,
-    build: { enabled: boolean; mining: boolean } = { enabled: false, mining: false },
+    hand: HeldHand = { kind: 'weapon', color: 0, mining: false },
   ): void {
     this.time += dt;
     if (c.weaponIndex !== this.current) this.setWeapon(c.weaponIndex);
-    this.setBuildMode(build.enabled);
+    this.setHeld(hand);
     this.root.position.copy(camera.position);
     this.root.quaternion.copy(camera.quaternion);
 
@@ -181,12 +198,12 @@ export class Viewmodel {
     this.bob += hs * dt * 1.6;
     const bobAmt = Math.min(hs / 10, 1) * VIEWMODEL.BOB_AMOUNT;
 
-    if (build.enabled) {
-      // Pickaxe: chop while mining, jab on place.
-      this.pickSwing = build.mining ? this.pickSwing + dt * 11 : 0;
+    if (hand.kind !== 'weapon') {
+      // Tools, blocks and fists: chop while mining, jab on place.
+      this.pickSwing = hand.mining ? this.pickSwing + dt * 11 : 0;
       this.placePulse = Math.max(0, this.placePulse - dt * 7);
-      const chop = build.mining ? Math.max(0, Math.sin(this.pickSwing)) : 0;
-      const pose = lerpPose(PICK_REST, PICK_HIT, chop);
+      const chop = hand.mining ? Math.max(0, Math.sin(this.pickSwing)) : 0;
+      const pose = lerpPose(hand.kind === 'tool' ? PICK_REST : ITEM_REST, PICK_HIT, chop);
       pose.pz -= this.placePulse * 0.15;
       this.applyHand(this.right, pose, dt, bobAmt, 1);
       return;
@@ -264,12 +281,18 @@ export class Viewmodel {
     }
   }
 
-  private setBuildMode(on: boolean): void {
-    if (this.pickaxe.visible === on) return;
-    this.pickaxe.visible = on;
+  private setHeld(hand: HeldHand): void {
+    this.pickHeadMat.color.setHex(hand.color);
+    this.heldCubeMat.color.setHex(hand.color);
+    if (this.handKind === hand.kind) return;
+    this.handKind = hand.kind;
+    const weapon = hand.kind === 'weapon';
     const m = this.models[this.current];
-    m.right.visible = !on;
-    if (m.left) m.left.visible = !on;
+    m.right.visible = weapon;
+    this.left.group.visible = weapon && m.left !== null;
+    this.pickaxe.visible = hand.kind === 'tool';
+    this.heldCube.visible = hand.kind === 'item';
+    this.fist.visible = hand.kind === 'empty';
     this.right.pose = { ...STAGGER };
   }
 
@@ -286,5 +309,6 @@ export class Viewmodel {
     this.right.pose = { ...STAGGER };
     this.left.pose = mirror(STAGGER);
     this.current = i;
+    this.handKind = null; // re-apply visibility for the new model
   }
 }

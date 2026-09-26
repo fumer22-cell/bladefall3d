@@ -1,11 +1,13 @@
 import { Vector3, type PerspectiveCamera } from 'three';
-import { COMBAT, DUMMY, MOVE, WEAPONS } from '../config';
+import { COMBAT, DUMMY, INVENTORY, MOVE } from '../config';
 import { DEG } from '../core/math';
 import type { CombatSystem } from '../combat/combatSystem';
 import { DUMMY_MODE_LABELS, type Dummy } from '../combat/trainingDummy';
-import { BUILD_PALETTE, type Builder } from '../player/builder';
+import type { Builder } from '../player/builder';
+import type { Inventory } from '../items/inventory';
 import type { Player } from '../player/player';
 import { BLOCKS } from '../world/blocks';
+import { itemName, stackHTML } from './itemIcon';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -24,10 +26,10 @@ const CONTROLS: [string, string][] = [
   ['RMB', 'Parry (tap right before a hit) / guard (hold)'],
   ['Q', 'Feint a heavy'],
   ['F or LMB', 'Deathblow a staggered enemy'],
-  ['1 – 5 / wheel', 'Sword, greatsword, daggers, spear, gauntlets'],
-  ['B', 'Build mode: hold LMB mine, RMB place, 1 – 9 / wheel pick block'],
+  ['1 – 9 / wheel', 'Hotbar. Weapons fight; tools, blocks and hands mine (hold LMB) and place (RMB)'],
+  ['E / Tab', 'Inventory and crafting'],
   ['G / H', 'Dummy mode / move dummy in front of you'],
-  ['R / T / F3', 'Respawn / slow-mo / debug'],
+  ['R / T / F3', 'Respawn / slow-mo / debug (K in debug: test kit)'],
 ];
 
 const DIR_GLYPH = { slashL: '←', slashR: '→', overhead: '↑', stab: '•' } as const;
@@ -51,8 +53,6 @@ export class Hud {
   private readonly healthText: HTMLSpanElement;
   private readonly posture: HTMLDivElement;
   private readonly postureFill: HTMLDivElement;
-  private readonly weaponName: HTMLDivElement;
-  private readonly weaponSlots: HTMLDivElement;
   private readonly mode: HTMLDivElement;
   private readonly aimDir: HTMLDivElement;
   private readonly riposte: HTMLDivElement;
@@ -63,9 +63,16 @@ export class Hud {
   private readonly deadEl: HTMLDivElement;
   private readonly hudRoot: HTMLDivElement;
   readonly overlay: HTMLDivElement;
-  private readonly palette: HTMLDivElement;
-  private readonly paletteSlots: HTMLDivElement[] = [];
-  private readonly buildTag: HTMLDivElement;
+  readonly quitButton: HTMLButtonElement;
+  private readonly hotbar: HTMLDivElement[] = [];
+  private readonly heldName: HTMLDivElement;
+  private readonly toastEl: HTMLDivElement;
+  private readonly pickupsEl: HTMLDivElement;
+  private readonly savedEl: HTMLDivElement;
+  private hotbarVersion = -1;
+  private heldTimer = 0;
+  private toastTimer = 0;
+  private savedTimer = 0;
   private readonly loading: HTMLDivElement;
   private readonly loadingText: HTMLDivElement;
   private worldInfo = '';
@@ -104,9 +111,6 @@ export class Hud {
     this.healthLag = el('div', 'lag', this.healthBar);
     this.healthFill = el('div', 'fill', this.healthBar);
 
-    const weapon = el('div', 'weapon', hud);
-    this.weaponName = el('div', 'name', weapon);
-    this.weaponSlots = el('div', 'slots', weapon);
     this.mode = el('div', 'mode', hud);
 
     this.flashes = {
@@ -115,15 +119,14 @@ export class Hud {
       heal: { el: el('div', 'flash heal', hud), v: 0 },
     };
 
-    this.palette = el('div', 'palette', hud);
-    BUILD_PALETTE.forEach((id, i) => {
-      const slot = el('div', 'slot', this.palette);
-      slot.style.background = `#${BLOCKS[id].color.toString(16).padStart(6, '0')}`;
-      slot.title = BLOCKS[id].name;
-      el('span', '', slot).textContent = `${i + 1}`;
-      this.paletteSlots.push(slot);
-    });
-    this.buildTag = el('div', 'buildtag', hud);
+    const hotbar = el('div', 'hotbar', hud);
+    for (let i = 0; i < INVENTORY.HOTBAR; i++) this.hotbar.push(el('div', 'slot', hotbar));
+    this.heldName = el('div', 'held-name', hud);
+    this.toastEl = el('div', 'toast', hud);
+    this.toastEl.style.opacity = '0';
+    this.pickupsEl = el('div', 'pickups', hud);
+    this.savedEl = el('div', 'saved', hud);
+    this.savedEl.textContent = 'SAVED';
     this.loading = el('div', 'loading', root);
     this.loading.innerHTML = '<b>BLADEFALL</b>';
     this.loadingText = el('div', '', this.loading);
@@ -138,9 +141,11 @@ export class Hud {
     const panel = el('div', 'panel', this.overlay);
     panel.innerHTML = `
       <h1>BLADEFALL</h1>
-      <p class="sub">Phase 3: procedural world, mining, building, light</p>
+      <p class="sub">Phase 4: items, crafting and saving</p>
       <table>${CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
-      <div class="go">Click to play</div>`;
+      <div class="go">Click to play</div>
+      <div class="pause-actions"><button type="button" class="quit">Save and quit to menu</button></div>`;
+    this.quitButton = panel.querySelector('.quit') as HTMLButtonElement;
   }
 
   flash(kind: 'parry' | 'hurt' | 'heal', strength = 1): void {
@@ -156,15 +161,54 @@ export class Hud {
     if (on) this.loadingText.textContent = `Generating world… (${jobs} columns in progress)`;
   }
 
-  updateBuild(b: Builder, worldInfo: string): void {
+  /** Brief centered notice (e.g. "Needs a copper pickaxe"). */
+  toast(text: string, seconds = 1.8): void {
+    this.toastEl.textContent = text;
+    this.toastTimer = seconds;
+  }
+
+  pickup(item: string, count: number): void {
+    const row = document.createElement('div');
+    row.textContent = `+${count} ${itemName(item)}`;
+    this.pickupsEl.appendChild(row);
+    setTimeout(() => (row.style.opacity = '0'), 1600);
+    setTimeout(() => row.remove(), 2200);
+    while (this.pickupsEl.children.length > 6) this.pickupsEl.firstChild?.remove();
+  }
+
+  showSaved(): void {
+    this.savedTimer = 1.5;
+  }
+
+  updateItems(inv: Inventory, b: Builder, worldInfo: string, dt: number): void {
     this.worldInfo = worldInfo;
-    this.palette.classList.toggle('on', b.enabled);
-    this.buildTag.classList.toggle('on', b.enabled);
-    if (!b.enabled) return;
-    this.paletteSlots.forEach((s, i) => s.classList.toggle('sel', i === b.selected));
-    const name = BLOCKS[b.selectedBlock].name.replace(/_/g, ' ');
-    const target = b.target ? ` · looking at ${BLOCKS[b.target.id].name.replace(/_/g, ' ')}` : '';
-    this.buildTag.textContent = `BUILD MODE [B] · ${name}${target}`;
+    if (inv.version !== this.hotbarVersion) {
+      const prevSel = this.hotbar.findIndex((e) => e.classList.contains('sel'));
+      const prevItem = this.heldName.dataset.item;
+      this.hotbarVersion = inv.version;
+      this.hotbar.forEach((slot, i) => {
+        slot.innerHTML = `<span class="key">${i + 1}</span>` + stackHTML(inv.slots[i]);
+        slot.classList.toggle('sel', i === inv.selected);
+      });
+      const held = inv.held;
+      const heldId = held?.item ?? '';
+      if (prevSel !== inv.selected || prevItem !== heldId) {
+        this.heldName.textContent = held ? itemName(held.item) : '';
+        this.heldName.dataset.item = heldId;
+        this.heldTimer = 2;
+      }
+    }
+    this.heldTimer -= dt;
+    this.heldName.style.opacity = this.heldTimer > 0 ? '1' : '0';
+    this.toastTimer -= dt;
+    this.toastEl.style.opacity = this.toastTimer > 0 ? '1' : '0';
+    this.savedTimer -= dt;
+    this.savedEl.style.opacity = this.savedTimer > 0 ? '1' : '0';
+    if (b.target && b.enabled && this.debugOn) this.worldInfo += `\ntarget   ${BLOCKS[b.target.id].name}`;
+  }
+
+  get debugVisible(): boolean {
+    return this.debugOn;
   }
 
   toggleDebug(): void {
@@ -205,8 +249,6 @@ export class Hud {
     this.posture.classList.toggle('high', pf > 0.75);
     this.posture.style.opacity = pf > 0.01 ? '1' : '0.25';
 
-    this.weaponName.textContent = c.weapon.name.toUpperCase();
-    this.weaponSlots.innerHTML = WEAPONS.map((_, i) => (i === c.weaponIndex ? `<b>${i + 1}</b>` : `${i + 1}`)).join(' ');
     const d0 = cs.dummies[0];
     this.mode.innerHTML = d0 ? `DUMMY [G]: <b>${DUMMY_MODE_LABELS[d0.mode]}</b>` : '';
 
