@@ -39,6 +39,10 @@ export abstract class EnemyBase implements Combatant {
   phaseLen = 0;
   attack: EnemyAttackDef | null = null;
   grounded = false;
+  damageMult = 1;
+  lit = 1;
+  /** Loot counts are multiplied by this. */
+  lootMult = 1;
   /** Seconds since last hurt (for flinch animation). */
   hurtTime = 10;
   protected cooldown = 1;
@@ -241,7 +245,7 @@ export abstract class EnemyBase implements Combatant {
   loot(): { item: string; count: number }[] {
     const out: { item: string; count: number }[] = [];
     for (const [item, [lo, hi]] of Object.entries(this.lootTable())) {
-      const n = lo + Math.floor(this.rng() * (hi - lo + 1));
+      const n = Math.round((lo + Math.floor(this.rng() * (hi - lo + 1))) * this.lootMult);
       if (n > 0) out.push({ item, count: n });
     }
     return out;

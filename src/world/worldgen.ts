@@ -48,11 +48,11 @@ interface MoodKit {
 const MOODS: Record<Mood, MoodKit> = {
   glade: {
     grass: Block.GRASS, leaves: Block.LEAVES, log: Block.LOG, trees: 1, cliff: 0.45,
-    plants: [[Block.TALL_GRASS, 0.3], [Block.FLOWER_ROSE, 0.03], [Block.FLOWER_BLUE, 0.02]],
+    plants: [[Block.BERRY_BUSH, 0.012], [Block.TALL_GRASS, 0.3], [Block.FLOWER_ROSE, 0.03], [Block.FLOWER_BLUE, 0.02]],
   },
   golden: {
     grass: Block.GOLD_GRASS, leaves: Block.GOLD_LEAVES, log: Block.PALE_LOG, trees: 1.2, cliff: 0.6,
-    plants: [[Block.GOLD_TUFT, 0.35], [Block.FLOWER_GOLD, 0.05]],
+    plants: [[Block.BERRY_BUSH, 0.008], [Block.GOLD_TUFT, 0.35], [Block.FLOWER_GOLD, 0.05]],
   },
   mist: {
     grass: Block.TEAL_GRASS, leaves: Block.TEAL_LEAVES, log: Block.LOG, trees: 0.9, cliff: 1.0,
@@ -60,7 +60,7 @@ const MOODS: Record<Mood, MoodKit> = {
   },
   moor: {
     grass: Block.HEATHER, leaves: Block.ROSE_LEAVES, log: Block.LOG, trees: 0.25, cliff: 1.35,
-    plants: [[Block.GOLD_TUFT, 0.1], [Block.FLOWER_ROSE, 0.02]],
+    plants: [[Block.BERRY_BUSH, 0.02], [Block.GOLD_TUFT, 0.1], [Block.FLOWER_ROSE, 0.02]],
   },
 };
 

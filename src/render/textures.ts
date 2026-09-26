@@ -453,6 +453,59 @@ const PAINTERS: Record<TileName, (t: Tile) => void> = {
       t.set(11, y, C('ink', 2));
     }
   },
+  bed_top: (t) => {
+    // Quilt with a pale pillow at the head.
+    t.noise('rose', 2, 3, 3);
+    for (let y = 0; y < N; y += 4) for (let x = 0; x < N; x++) t.set(x, y, C('rose', 1));
+    for (let x = 0; x < N; x += 4) for (let y = 0; y < N; y++) if (y % 4 !== 0) t.set(x, y, C('rose', 4));
+    for (let y = 1; y < 5; y++) for (let x = 2; x < 14; x++) t.set(x, y, C('pale', y === 1 ? 4 : 3));
+    for (let i = 0; i < N; i++) {
+      t.set(i, 0, C('wood', 1));
+      t.set(0, i, C('wood', 1));
+      t.set(N - 1, i, C('wood', 1));
+      t.set(i, N - 1, C('wood', 1));
+    }
+  },
+  bed_side: (t) => {
+    planks(t);
+    for (let y = 0; y < 7; y++) for (let x = 0; x < N; x++) t.set(x, y, C('rose', y === 6 ? 1 : 3 - (x % 5 === 0 ? 1 : 0)));
+    for (let y = 7; y < N; y++) {
+      t.set(0, y, C('wood', 0));
+      t.set(1, y, C('wood', 1));
+      t.set(N - 1, y, C('wood', 0));
+      t.set(N - 2, y, C('wood', 1));
+    }
+  },
+  campfire: (t) =>
+    plant(t, (t) => {
+      // Crossed logs with a flame licking up between them.
+      for (let x = 1; x < 15; x++) {
+        t.set(x, 14, C('wood', 1));
+        t.set(x, 15, C('wood', 0));
+      }
+      for (let x = 2; x < 14; x += 3) t.set(x, 14, C('wood', 3));
+      const h = [0, 3, 6, 9, 11, 12, 11, 12, 10, 8, 5, 2, 0];
+      for (let i = 0; i < h.length; i++)
+        for (let y = 0; y < h[i]; y++) {
+          const x = 2 + i;
+          const f = y / Math.max(1, h[i]);
+          t.set(x, 13 - y, C('ember', f < 0.3 ? 4 : f < 0.6 ? 3 : f < 0.85 ? 2 : 1));
+        }
+      for (let k = 0; k < 4; k++) t.set(4 + Math.floor(t.rng() * 8), Math.floor(t.rng() * 3), C('ember', 4));
+    }),
+  berry_bush: (t) =>
+    plant(t, (t) => {
+      for (let k = 0; k < 60; k++) {
+        const a = t.rng() * Math.PI, r = Math.sqrt(t.rng()) * 7;
+        t.set(8 + Math.round(Math.cos(a) * r), 15 - Math.round(Math.sin(a) * r * 1.1), C('moss', 2 + Math.floor(t.rng() * 3)));
+      }
+      for (let k = 0; k < 9; k++) {
+        const a = t.rng() * Math.PI, r = 1 + t.rng() * 5;
+        const x = 8 + Math.round(Math.cos(a) * r), y = 14 - Math.round(Math.sin(a) * r);
+        t.set(x, y, C('rose', 4));
+        t.set(x + 1, y, C('rose', 2));
+      }
+    }),
   marker_red: (t) => t.noise('rose', 3, 4),
   marker_yellow: (t) => t.noise('gold', 4, 5),
   marker_blue: (t) => t.noise('glow', 1, 2),

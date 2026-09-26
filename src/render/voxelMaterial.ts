@@ -141,6 +141,14 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
   });
 }
 
+/** Time of day: sky-light brightness multiplier and colour. */
+export function setDaylight(mats: ShaderMaterial[], daylight: number, tint: readonly number[]): void {
+  for (const m of mats) {
+    m.uniforms.daylight.value = daylight;
+    m.uniforms.skyTint.value = [tint[0], tint[1], tint[2]];
+  }
+}
+
 /** Set fog color from raw sRGB components (the shader writes sRGB directly). */
 export function setFogColor(mats: ShaderMaterial[], r: number, g: number, b: number): void {
   for (const m of mats) m.uniforms.fogColor.value = [r, g, b];

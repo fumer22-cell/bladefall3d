@@ -93,6 +93,10 @@ export const Block = {
   FLOWER_BLUE: define('bluebell', 0x66c1d6, 'flower_blue', PLANT),
   GLOWSHROOM: define('glowshroom', 0x66c1d6, 'glowshroom', { ...PLANT, emission: 11 }),
   VINES: define('vines', 0x38776c, 'vines', PLANT),
+  // --- Survival (Phase 6) ---
+  BED: define('bed', 0x9c3a41, ['bed_top', 'bed_side', 'planks'], { hardness: 0.5 }),
+  CAMPFIRE: define('campfire', 0xdc7629, 'campfire', { ...PLANT, emission: 14, hardness: 0.4 }),
+  BERRY_BUSH: define('berry_bush', 0x782834, 'berry_bush', { ...PLANT, hardness: 0.1 }),
 } as const;
 
 export const BLOCKS: readonly BlockDef[] = defs;

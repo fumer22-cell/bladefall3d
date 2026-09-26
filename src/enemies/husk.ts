@@ -22,9 +22,17 @@ export class Husk extends EnemyBase {
   /** Walk-cycle phase for the view. */
   stride = 0;
 
-  constructor(x: number, y: number, z: number, rng: () => number = Math.random) {
-    super(x, y, z, H.HEALTH, H.POSTURE, H.WIDTH, H.HEIGHT, rng);
+  /** Night spawn: tougher, hits harder, drops more. */
+  readonly nightborn: boolean;
+
+  constructor(x: number, y: number, z: number, rng: () => number = Math.random, nightborn = false) {
+    super(x, y, z, H.HEALTH * (nightborn ? ENEMIES.NIGHTBORN_HEALTH_MULT : 1), H.POSTURE, H.WIDTH, H.HEIGHT, rng);
     this.yaw = rng() * Math.PI * 2;
+    this.nightborn = nightborn;
+    if (nightborn) {
+      this.damageMult = ENEMIES.NIGHTBORN_DAMAGE_MULT;
+      this.lootMult = ENEMIES.NIGHTBORN_LOOT_MULT;
+    }
   }
 
   protected recoilTime(): number {

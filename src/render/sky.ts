@@ -7,7 +7,31 @@ const dir = (elev: number, azim: number) =>
   new Vector3(Math.cos(elev * DEG) * Math.sin(azim * DEG), Math.sin(elev * DEG), Math.cos(elev * DEG) * Math.cos(azim * DEG));
 const rgb = (hex: string) => hexToRgb(hex).map((v) => v / 255);
 
-/** Dusk sky dome that follows the camera. */
+type SkyKey = 'cZenith' | 'cHigh' | 'cMid' | 'cLow' | 'cHorizon' | 'cSun' | 'cSunCore' | 'cBelow' | 'cCloudDark' | 'cCloudLit';
+type SkyPalette = Record<SkyKey, number[]>;
+
+const S = RAMPS.sky, D = RAMPS.day;
+const DUSK: SkyPalette = {
+  cZenith: rgb(S[1]), cHigh: rgb(S[2]), cMid: rgb(S[3]), cLow: rgb(S[5]), cHorizon: rgb(S[6]),
+  cSun: rgb(S[7]), cSunCore: rgb(S[8]), cBelow: rgb(S[4]), cCloudDark: rgb(RAMPS.heather[3]), cCloudLit: rgb(RAMPS.gold[4]),
+};
+const DAY: SkyPalette = {
+  cZenith: rgb(D[1]), cHigh: rgb(D[2]), cMid: rgb(D[3]), cLow: rgb(D[4]), cHorizon: rgb(D[5]),
+  cSun: rgb(RAMPS.gold[6]), cSunCore: rgb(RAMPS.snow[3]), cBelow: rgb(D[3]), cCloudDark: rgb(D[4]), cCloudLit: rgb(RAMPS.snow[3]),
+};
+const NIGHT: SkyPalette = {
+  cZenith: rgb(S[0]), cHigh: rgb(S[0]), cMid: rgb(S[1]), cLow: rgb(S[2]), cHorizon: rgb(S[3]),
+  cSun: rgb(S[4]), cSunCore: rgb(S[5]), cBelow: rgb(RAMPS.ink[1]), cCloudDark: rgb(RAMPS.ink[3]), cCloudLit: rgb(RAMPS.heather[2]),
+};
+
+/** How much of each sky to show (weights are normalized). */
+export interface SkyMix {
+  day: number;
+  dusk: number;
+  night: number;
+}
+
+/** Sky dome that follows the camera: day, dusk and night gradients, sun, moon, stars, clouds. */
 export class Sky {
   readonly mesh: Mesh;
   private readonly mat: ShaderMaterial;
@@ -21,6 +45,8 @@ export class Sky {
       uniforms: {
         time: { value: 0 },
         darken: { value: 0 },
+        stars: { value: 1 },
+        sunGlow: { value: 1 },
         sunDir: { value: this.sunDir },
         moonDir: { value: dir(SKY.MOON_ELEVATION, SKY.MOON_AZIMUTH) },
         moonSize: { value: SKY.MOON_SIZE },
@@ -49,6 +75,8 @@ export class Sky {
       fragmentShader: /* glsl */ `
         uniform float time;
         uniform float darken;
+        uniform float stars;
+        uniform float sunGlow;
         uniform vec3 sunDir;
         uniform vec3 moonDir;
         uniform float moonSize;
@@ -81,9 +109,9 @@ export class Sky {
           c = mix(c, cHigh, smoothstep(0.28, 0.55, h));
           c = mix(c, cZenith, smoothstep(0.55, 0.95, h));
           // Warm glow around the setting sun.
-          c = mix(c, cSun, pow(toSun, 6.0) * 0.75 * smoothstep(-0.2, 0.1, h));
-          c = mix(c, cSunCore, pow(toSun, 60.0));
-          if (toSun > 0.9994) c = cSunCore;
+          c = mix(c, cSun, pow(toSun, 6.0) * 0.75 * smoothstep(-0.2, 0.1, h) * sunGlow);
+          c = mix(c, cSunCore, pow(toSun, 60.0) * sunGlow);
+          if (toSun > 0.9994 && sunDir.y > -0.05) c = cSunCore;
 
           // Stars in the upper sky.
           if (h > 0.18) {
@@ -91,7 +119,7 @@ export class Sky {
             float r = hash(g);
             if (r > 0.9965) {
               float tw = 0.6 + 0.4 * sin(time * 3.0 + r * 60.0);
-              c = mix(c, vec3(0.95, 0.9, 0.8), smoothstep(0.18, 0.4, h) * tw);
+              c = mix(c, vec3(0.95, 0.9, 0.8), smoothstep(0.18, 0.4, h) * tw * stars);
             }
           }
 
@@ -134,5 +162,29 @@ export class Sky {
     this.mesh.position.copy(camPos);
     this.mat.uniforms.time.value = time;
     this.mat.uniforms.darken.value = darken;
+  }
+
+  /**
+   * Time of day: `sunHeight` is sin(elevation) over a day (0 = sunrise … 0.25 noon, 0.75 midnight
+   * as `dayTime`); blends the three palettes by `mix`.
+   */
+  setTimeOfDay(dayTime: number, mix: SkyMix): void {
+    const u = this.mat.uniforms;
+    const a = dayTime * Math.PI * 2;
+    // The sun rises in the east, arcs across the south and sets in the west.
+    const az = SKY.SUN_AZIMUTH * DEG;
+    const ex = Math.sin(az), ez = Math.cos(az);
+    const sx = -ex * Math.cos(a), sz = -ez * Math.cos(a);
+    const sy = Math.sin(a);
+    this.sunDir.set(sx + ez * 0.35 * sy, sy * 0.94, sz - ex * 0.35 * sy).normalize();
+    (u.moonDir.value as Vector3).set(-this.sunDir.x + 0.25, Math.max(-this.sunDir.y, -0.3) + 0.12, -this.sunDir.z).normalize();
+    const sum = mix.day + mix.dusk + mix.night || 1;
+    const wd = mix.day / sum, wk = mix.dusk / sum, wn = mix.night / sum;
+    for (const k of Object.keys(DUSK) as SkyKey[]) {
+      const out = u[k].value as number[];
+      for (let i = 0; i < 3; i++) out[i] = DAY[k][i] * wd + DUSK[k][i] * wk + NIGHT[k][i] * wn;
+    }
+    u.stars.value = Math.min(1, wn * 1.4 + wk * 0.35);
+    u.sunGlow.value = 1 - wn * 0.9;
   }
 }

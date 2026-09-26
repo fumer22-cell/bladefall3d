@@ -9,6 +9,8 @@ export interface Stack {
 /** Slots 0..HOTBAR-1 are the hotbar; the rest is the backpack. */
 export class Inventory {
   readonly slots: (Stack | null)[];
+  /** Worn armor: head, body, legs. */
+  readonly armor: (Stack | null)[] = [null, null, null];
   selected = 0;
   /** Bumped on every change so UIs can re-render lazily. */
   version = 0;
@@ -112,10 +114,70 @@ export class Inventory {
     return slot;
   }
 
-  /** Shift-click: move a stack between the hotbar and the backpack. */
+  /** Click on an armor slot with a cursor stack: only armor for that slot fits. Returns the new cursor. */
+  clickArmor(slot: number, cursor: Stack | null): Stack | null {
+    if (cursor && ITEMS[cursor.item]?.armor?.slot !== slot) return cursor;
+    const worn = this.armor[slot];
+    this.armor[slot] = cursor;
+    this.version++;
+    return worn;
+  }
+
+  /** Put on the armor piece in slot i (swapping out what's worn). Returns false if it isn't armor. */
+  equip(i: number): boolean {
+    const s = this.slots[i];
+    const a = s ? ITEMS[s.item]?.armor : undefined;
+    if (!s || !a) return false;
+    this.slots[i] = this.armor[a.slot];
+    this.armor[a.slot] = s;
+    this.version++;
+    return true;
+  }
+
+  /** Take off armor into the first free slot. */
+  unequip(slot: number): void {
+    const worn = this.armor[slot];
+    if (!worn) return;
+    const free = this.slots.indexOf(null);
+    if (free < 0) return;
+    this.slots[free] = worn;
+    this.armor[slot] = null;
+    this.version++;
+  }
+
+  /** Fraction of enemy damage absorbed by worn armor. */
+  defense(): number {
+    let d = 0;
+    for (const a of this.armor) if (a) d += ITEMS[a.item]?.armor?.defense ?? 0;
+    return Math.min(0.75, d);
+  }
+
+  /** Warmth (°C) from worn armor. */
+  warmth(): number {
+    let w = 0;
+    for (const a of this.armor) if (a) w += ITEMS[a.item]?.armor?.warmth ?? 0;
+    return w;
+  }
+
+  /** Remove every stack of an item; returns how many were taken. */
+  takeAll(item: string): number {
+    let n = 0;
+    for (let k = 0; k < this.slots.length; k++) {
+      const s = this.slots[k];
+      if (s && s.item === item) {
+        n += s.count;
+        this.slots[k] = null;
+      }
+    }
+    if (n) this.version++;
+    return n;
+  }
+
+  /** Shift-click: wear armor, or move a stack between the hotbar and the backpack. */
   quickMove(i: number): void {
     const s = this.slots[i];
     if (!s) return;
+    if (ITEMS[s.item]?.armor && this.equip(i)) return;
     const toHotbar = i >= INVENTORY.HOTBAR;
     const [lo, hi] = toHotbar ? [0, INVENTORY.HOTBAR] : [INVENTORY.HOTBAR, this.slots.length];
     const max = ITEMS[s.item]?.maxStack ?? INVENTORY.MAX_STACK;
@@ -140,11 +202,14 @@ export class Inventory {
     return this.slots.map((s) => (s ? { ...s } : null));
   }
 
-  load(data: (Stack | null)[], selected = 0): void {
-    for (let i = 0; i < this.slots.length; i++) {
-      const s = data[i];
-      this.slots[i] = s && ITEMS[s.item] && s.count > 0 ? { item: s.item, count: s.count } : null;
-    }
+  serializeArmor(): (Stack | null)[] {
+    return this.armor.map((s) => (s ? { ...s } : null));
+  }
+
+  load(data: (Stack | null)[], selected = 0, armor: (Stack | null)[] = []): void {
+    const ok = (s: Stack | null | undefined) => (s && ITEMS[s.item] && s.count > 0 ? { item: s.item, count: s.count } : null);
+    for (let i = 0; i < this.slots.length; i++) this.slots[i] = ok(data[i]);
+    for (let i = 0; i < 3; i++) this.armor[i] = ok(armor[i]);
     this.selected = selected;
     this.version++;
   }

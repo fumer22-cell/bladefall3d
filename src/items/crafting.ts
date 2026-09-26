@@ -4,7 +4,7 @@ import type { VoxelQuery } from '../world/world';
 import type { Inventory } from './inventory';
 import { WEAPON_KINDS } from './items';
 
-export type Station = 'hand' | 'workbench' | 'forge' | 'anvil';
+export type Station = 'hand' | 'campfire' | 'workbench' | 'forge' | 'anvil';
 
 export interface Recipe {
   id: string;
@@ -14,6 +14,7 @@ export interface Recipe {
 }
 
 export const STATION_BLOCKS: Record<Exclude<Station, 'hand'>, number> = {
+  campfire: Block.CAMPFIRE,
   workbench: Block.WORKBENCH,
   forge: Block.FORGE,
   anvil: Block.ANVIL,
@@ -41,18 +42,32 @@ export const RECIPES: Recipe[] = [
   r('hand', 'stick', 4, ['planks', 2]),
   r('hand', 'torch', 4, ['stick', 1], ['coal', 1]),
   r('hand', 'workbench', 1, ['planks', 4]),
+  r('hand', 'campfire', 1, ['log', 2], ['stick', 3]),
+  // Campfire: cooking
+  r('campfire', 'roast_crow', 1, ['crow_meat', 1]),
+  r('campfire', 'berry_tart', 1, ['duskberries', 3], ['planks', 1]),
+  r('campfire', 'glowcap_stew', 1, ['glowcap', 2], ['duskberries', 1]),
   // Workbench
   r('workbench', 'wooden_pickaxe', 1, ['planks', 3], ['stick', 2]),
   r('workbench', 'forge', 1, ['cobblestone', 8], ['coal', 2]),
   r('workbench', 'stone_brick', 4, ['cobblestone', 4]),
+  r('workbench', 'bed', 1, ['planks', 3], ['feather', 4]),
+  r('workbench', 'feather_hood', 1, ['feather', 5], ['bone', 1]),
+  r('workbench', 'feather_mantle', 1, ['feather', 8], ['bone', 2]),
   // Forge: smelting and copper gear
   r('forge', 'copper_ingot', 1, ['raw_copper', 1], ['coal', 1]),
   r('forge', 'iron_ingot', 1, ['raw_iron', 1], ['coal', 1]),
   r('forge', 'copper_pickaxe', 1, ['copper_ingot', 3], ['stick', 2]),
   ...WEAPON_KINDS.map((k) => r('forge', `copper_${k}`, 1, ['copper_ingot', WEAPON_COST[k][0]], ['stick', WEAPON_COST[k][1]])),
+  r('forge', 'copper_helm', 1, ['copper_ingot', 4]),
+  r('forge', 'copper_cuirass', 1, ['copper_ingot', 7]),
+  r('forge', 'copper_greaves', 1, ['copper_ingot', 5]),
   r('forge', 'anvil', 1, ['iron_ingot', 5]),
   // Anvil: iron gear
   r('anvil', 'iron_pickaxe', 1, ['iron_ingot', 3], ['stick', 2]),
+  r('anvil', 'iron_helm', 1, ['iron_ingot', 4]),
+  r('anvil', 'iron_cuirass', 1, ['iron_ingot', 7]),
+  r('anvil', 'iron_greaves', 1, ['iron_ingot', 5]),
   ...WEAPON_KINDS.map((k) => r('anvil', `iron_${k}`, 1, ['iron_ingot', WEAPON_COST[k][0]], ['stick', WEAPON_COST[k][1]])),
 ].map((rec) => ({ ...rec, inputs: rec.inputs.filter((i) => i.count > 0) }));
 

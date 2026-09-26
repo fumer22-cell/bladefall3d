@@ -46,6 +46,8 @@ export class CombatSystem {
   /** Everything the player can fight: the dummy and wild enemies. */
   readonly enemies: Combatant[] = [];
   deathblow: Deathblow | null = null;
+  /** Multiplier on damage enemies deal to the player (armor). */
+  damageTakenMult = 1;
   /** Seconds until respawn while dead (0 = alive). */
   deadTimer = 0;
 
@@ -206,7 +208,7 @@ export class CombatSystem {
         return;
       }
       case 'guarded': {
-        const damage = a.damage * COMBAT.GUARD_DAMAGE_MULT;
+        const damage = a.damage * (d.damageMult ?? 1) * COMBAT.GUARD_DAMAGE_MULT;
         this.damagePlayer(damage, d.pos, false);
         combat.takePosture(a.posture * COMBAT.GUARD_POSTURE_MULT);
         this.events.emit('guard', { pos, damage });
@@ -214,13 +216,23 @@ export class CombatSystem {
         return;
       }
       case 'hit':
-        this.damagePlayer(a.damage, d.pos, true);
+        this.damagePlayer(a.damage * (d.damageMult ?? 1), d.pos, true);
         combat.takePosture(a.posture * COMBAT.HIT_POSTURE_MULT);
         return;
     }
   }
 
+  /** Damage from the world (hunger, cold, falls): no knockback, not reduced by armor. */
+  hurtPlayer(damage: number): void {
+    if (this.isDead()) return;
+    this.applyDamage(damage, this.player.pos, false);
+  }
+
   private damagePlayer(damage: number, from: V3, knock: boolean): void {
+    this.applyDamage(damage * this.damageTakenMult, from, knock);
+  }
+
+  private applyDamage(damage: number, from: V3, knock: boolean): void {
     const { combat, player } = this;
     combat.health -= damage;
     if (knock) {

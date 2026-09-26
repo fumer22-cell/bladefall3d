@@ -1,7 +1,10 @@
 import { INVENTORY, TIERS } from '../config';
 import { BLOCKS, Block } from '../world/blocks';
 
-export type ItemKind = 'block' | 'tool' | 'weapon' | 'material';
+export type ItemKind = 'block' | 'tool' | 'weapon' | 'material' | 'food' | 'armor';
+
+export type ArmorSlot = 0 | 1 | 2;
+export const ARMOR_SLOT_NAMES = ['Head', 'Body', 'Legs'] as const;
 
 export interface ItemDef {
   /** Stable string id (used in saves). */
@@ -16,6 +19,10 @@ export interface ItemDef {
   tool?: { tier: number; mineSpeed: number };
   /** Index into WEAPONS + damage/posture multiplier for the material. */
   weapon?: { index: number; mult: number };
+  /** Eating it: food points, health healed over time, and whether it warms you. */
+  food?: { food: number; heal: number; warm?: boolean };
+  /** Wearing it: slot, fraction of enemy damage absorbed, warmth in °C. */
+  armor?: { slot: ArmorSlot; defense: number; warmth: number };
   /** Short label drawn on the icon. */
   abbr?: string;
 }
@@ -50,6 +57,8 @@ blockItem('torch', Block.TORCH);
 blockItem('workbench', Block.WORKBENCH);
 blockItem('forge', Block.FORGE);
 blockItem('anvil', Block.ANVIL);
+blockItem('bed', Block.BED, 'Feather Bed');
+blockItem('campfire', Block.CAMPFIRE);
 
 // --- Materials ---
 add({ id: 'stick', name: 'Stick', kind: 'material', color: 0x8a6a42, abbr: '/' });
@@ -60,6 +69,30 @@ add({ id: 'copper_ingot', name: 'Copper Ingot', kind: 'material', color: 0xe08a5
 add({ id: 'iron_ingot', name: 'Iron Ingot', kind: 'material', color: 0xd8d8dc, abbr: 'Fe' });
 add({ id: 'bone', name: 'Husk Bone', kind: 'material', color: 0xc9bfa7, abbr: 'Bn' });
 add({ id: 'feather', name: 'Crow Feather', kind: 'material', color: 0x2b2437, abbr: 'Fr' });
+add({ id: 'coin', name: 'Grave Coin', kind: 'material', color: 0xd6a434, abbr: 'Gc', maxStack: 999 });
+
+// --- Food ---
+add({ id: 'duskberries', name: 'Duskberries', kind: 'food', color: 0x9c3a41, abbr: 'Bry', food: { food: 9, heal: 2 } });
+add({ id: 'glowcap', name: 'Glowcap', kind: 'food', color: 0x66c1d6, abbr: 'Cap', food: { food: 6, heal: 0 } });
+add({ id: 'crow_meat', name: 'Raw Crow', kind: 'food', color: 0xbd5751, abbr: 'Raw', food: { food: 10, heal: 0 } });
+add({ id: 'roast_crow', name: 'Roast Crow', kind: 'food', color: 0x7f5a32, abbr: 'Rst', food: { food: 32, heal: 14 } });
+add({ id: 'berry_tart', name: 'Berry Tart', kind: 'food', color: 0xbd5751, abbr: 'Trt', food: { food: 26, heal: 10 } });
+add({ id: 'glowcap_stew', name: 'Glowcap Stew', kind: 'food', color: 0x3f8475, abbr: 'Stw', maxStack: 8, food: { food: 42, heal: 24, warm: true } });
+
+// --- Armor (head, body, legs) ---
+add({ id: 'feather_hood', name: 'Feather Hood', kind: 'armor', color: 0x2b2437, abbr: 'Hd', maxStack: 1, armor: { slot: 0, defense: 0.03, warmth: 6 } });
+add({ id: 'feather_mantle', name: 'Feather Mantle', kind: 'armor', color: 0x2b2437, abbr: 'Mt', maxStack: 1, armor: { slot: 1, defense: 0.05, warmth: 9 } });
+for (const [mat, color, def, warm] of [
+  ['copper', 0xe08a50, [0.05, 0.09, 0.06], 2],
+  ['iron', 0xd8d8dc, [0.08, 0.14, 0.1], 1],
+] as const) {
+  (['helm', 'cuirass', 'greaves'] as const).forEach((piece, slot) => {
+    add({
+      id: `${mat}_${piece}`, name: titleCase(`${mat} ${piece}`), kind: 'armor', color, maxStack: 1,
+      abbr: ['Hm', 'Cu', 'Gv'][slot], armor: { slot: slot as ArmorSlot, defense: def[slot], warmth: warm },
+    });
+  });
+}
 
 // --- Pickaxes ---
 add({ id: 'wooden_pickaxe', name: 'Wooden Pickaxe', kind: 'tool', color: 0xb08952, maxStack: 1, tool: TIERS.WOOD, abbr: 'Pk' });
@@ -95,7 +128,19 @@ export function blockDrop(block: number): string | null {
     case Block.IRON_ORE:
       return 'raw_iron';
     case Block.LEAVES:
-      return Math.random() < 0.12 ? 'stick' : null;
+      return Math.random() < 0.12 ? 'stick' : Math.random() < 0.05 ? 'duskberries' : null;
+    case Block.GOLD_LEAVES:
+    case Block.TEAL_LEAVES:
+    case Block.ROSE_LEAVES:
+      return Math.random() < 0.1 ? 'stick' : Math.random() < 0.05 ? 'duskberries' : null;
+    case Block.BERRY_BUSH:
+      return 'duskberries';
+    case Block.TALL_GRASS:
+    case Block.FERN:
+    case Block.GOLD_TUFT:
+      return Math.random() < 0.08 ? 'duskberries' : null;
+    case Block.GLOWSHROOM:
+      return 'glowcap';
     case Block.WATER:
     case Block.BEDROCK:
       return null;

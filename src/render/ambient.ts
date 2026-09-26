@@ -58,7 +58,7 @@ export class Fireflies {
         this.respawn(i, p.x, p.y, p.z);
       }
       const pulse = Math.max(0, Math.sin(this.time * 2.2 + s * 5));
-      const scale = 0.4 + pulse * (0.8 + darkness * 0.6);
+      const scale = 0.4 + pulse * (0.8 + darkness * 0.25);
       this.m.makeRotationFromQuaternion(q);
       this.m.scale({ x: scale, y: scale, z: scale } as never);
       this.m.setPosition(this.pos[j], this.pos[j + 1], this.pos[j + 2]);

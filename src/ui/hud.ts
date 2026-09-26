@@ -27,12 +27,29 @@ const CONTROLS: [string, string][] = [
   ['Q', 'Feint a heavy'],
   ['F or LMB', 'Deathblow a staggered enemy'],
   ['1 – 9 / wheel', 'Hotbar. Weapons fight; tools, blocks and hands mine (hold LMB) and place (RMB)'],
-  ['E / Tab', 'Inventory and crafting'],
+  ['E / Tab', 'Inventory and crafting (shift-click armor to wear it)'],
+  ['Hold RMB with food', 'Eat'],
+  ['F on a bed', 'Sleep through the night / set respawn'],
   ['G / H', 'Dummy mode / move dummy in front of you'],
   ['R / T / F3', 'Respawn / slow-mo / debug (K in debug: test kit)'],
 ];
 
 const DIR_GLYPH = { slashL: '←', slashR: '→', overhead: '↑', stab: '•' } as const;
+
+export interface SurvivalHud {
+  food: number;
+  healPool: number;
+  eating: number;
+  hunger: 'fed' | 'ok' | 'hungry' | 'starving';
+  temp: 'freezing' | 'cold' | 'ok' | 'warm' | 'hot';
+  bodyTemp: number;
+  warmBuff: boolean;
+  day: number;
+  phase: string;
+  night: boolean;
+  memory: { x: number; y: number; z: number; coins: number } | null;
+  deathNote: string;
+}
 
 interface TargetEl {
   root: HTMLDivElement;
@@ -79,6 +96,17 @@ export class Hud {
   private debugOn = false;
   private fps = 60;
   private lagHealth: number = COMBAT.PLAYER_MAX_HEALTH;
+  private readonly foodBar: HTMLDivElement;
+  private readonly foodFill: HTMLDivElement;
+  private readonly foodPool: HTMLDivElement;
+  private readonly eatBar: HTMLDivElement;
+  private readonly eatFill: HTMLDivElement;
+  private readonly statusEl: HTMLDivElement;
+  private statusKey = '';
+  private readonly clockEl: HTMLDivElement;
+  private readonly memoryMark: HTMLDivElement;
+  private readonly deadNote: HTMLElement;
+  private readonly sleepEl: HTMLDivElement;
   private healGlow = 0;
 
   constructor(root: HTMLElement) {
@@ -110,6 +138,14 @@ export class Hud {
     this.healthBar = el('div', 'bar', vitals);
     this.healthLag = el('div', 'lag', this.healthBar);
     this.healthFill = el('div', 'fill', this.healthBar);
+    this.foodBar = el('div', 'bar food', vitals);
+    this.foodPool = el('div', 'pool', this.foodBar);
+    this.foodFill = el('div', 'fill', this.foodBar);
+    this.eatBar = el('div', 'bar eat', vitals);
+    this.eatFill = el('div', 'fill', this.eatBar);
+    this.statusEl = el('div', 'status', vitals);
+    this.clockEl = el('div', 'clock', hud);
+    this.memoryMark = el('div', 'memory-mark', hud);
 
     this.mode = el('div', 'mode', hud);
 
@@ -136,6 +172,8 @@ export class Hud {
     this.slowmo.textContent = 'SLOW-MO';
     this.deadEl = el('div', 'dead', root);
     this.deadEl.textContent = 'YOU DIED';
+    this.deadNote = el('small', '', this.deadEl);
+    this.sleepEl = el('div', 'sleep', root);
 
     this.overlay = el('div', 'overlay', root);
     const panel = el('div', 'panel', this.overlay);
@@ -146,6 +184,58 @@ export class Hud {
       <div class="go">Click to play</div>
       <div class="pause-actions"><button type="button" class="quit">Save and quit to menu</button></div>`;
     this.quitButton = panel.querySelector('.quit') as HTMLButtonElement;
+  }
+
+  /** Hunger, temperature, clock and memory marker. */
+  updateSurvival(v: SurvivalHud, camera: PerspectiveCamera): void {
+    this.foodFill.style.width = `${v.food}%`;
+    this.foodPool.style.width = `${Math.min(100, v.food + v.healPool)}%`;
+    this.foodBar.classList.toggle('low', v.hunger === 'hungry' || v.hunger === 'starving');
+    this.eatBar.classList.toggle('on', v.eating > 0);
+    this.eatFill.style.width = `${v.eating * 100}%`;
+    const chips: [string, string][] = [];
+    if (v.hunger === 'starving') chips.push(['starving', 'STARVING']);
+    else if (v.hunger === 'hungry') chips.push(['hungry', 'HUNGRY']);
+    else if (v.hunger === 'fed') chips.push(['fed', 'WELL FED']);
+    if (v.temp === 'freezing') chips.push(['freezing', 'FREEZING']);
+    else if (v.temp === 'cold') chips.push(['cold', 'COLD']);
+    else if (v.temp === 'hot') chips.push(['hot', 'HOT']);
+    else if (v.temp === 'warm') chips.push(['warm', 'BY THE FIRE']);
+    if (v.warmBuff) chips.push(['warm', 'WARMED']);
+    const key = chips.map((c) => c[0] + c[1]).join('|');
+    if (key !== this.statusKey) {
+      this.statusKey = key;
+      this.statusEl.innerHTML = chips.map(([cls, text]) => `<span class="${cls}">${text}</span>`).join('');
+    }
+    this.clockEl.classList.toggle('night', v.night);
+    this.clockEl.innerHTML = `DAY <b>${v.day}</b> · ${v.phase}` + (this.debugOn ? ` · ${v.bodyTemp.toFixed(1)}°` : '');
+    this.deadNote.textContent = v.deathNote;
+
+    // Memory marker (only when in front of the camera).
+    const m = v.memory;
+    let show = false;
+    if (m) {
+      const p = new Vector3(m.x, m.y + 0.6, m.z);
+      const dist = p.distanceTo(camera.position);
+      const dir = new Vector3();
+      camera.getWorldDirection(dir);
+      if (p.clone().sub(camera.position).dot(dir) > 0) {
+        p.project(camera);
+        if (Math.abs(p.x) < 1.1 && Math.abs(p.y) < 1.1) {
+          show = true;
+          this.memoryMark.style.left = `${((p.x + 1) / 2) * window.innerWidth}px`;
+          this.memoryMark.style.top = `${((1 - p.y) / 2) * window.innerHeight}px`;
+          this.memoryMark.textContent = `MEMORY · ${m.coins} COINS · ${Math.round(dist)}m`;
+        }
+      }
+    }
+    this.memoryMark.classList.toggle('on', show);
+  }
+
+  /** Full-screen fade for sleeping (0..1). */
+  setSleep(amount: number, text = ''): void {
+    this.sleepEl.style.opacity = amount.toFixed(3);
+    this.sleepEl.textContent = amount > 0.6 ? text : '';
   }
 
   flash(kind: 'parry' | 'hurt' | 'heal', strength = 1): void {
@@ -320,7 +410,8 @@ export class Hud {
 
       // Off-screen attack warning.
       const warn = (this.warns[i] ??= this.makeWarn());
-      const threat = d.threatening();
+      // Darkness hides telegraphs: no off-screen warning for attackers you couldn't see.
+      const threat = d.threatening() && (d.lit ?? 1) > 0.25;
       let show = false;
       if (threat) {
         const to = d.center().sub(camera.position).normalize();

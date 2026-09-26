@@ -47,6 +47,17 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   down, jumping gaps). Carrion Crows spawn under open sky, circle overhead and spit parryable orbs (perfect-parry
   them back) or dive in to peck; break a crow's posture and it falls out of the sky for a deathblow. Kills drop Husk
   Bones and Crow Feathers. Press **P** to toggle wild spawning (clears current wild enemies).
+- **Phase 6 — survival:** a day/night cycle (~14 min; nights pass faster) with a moving sun and moon, blue days,
+  golden dusks and dark moonlit nights. At night Husks roam the open surface, more of them and "nightborn" (red
+  eyes, tougher, harder hitting, double loot); at dawn Husks caught in sunlight smoulder away. Darkness hides enemy
+  telegraphs (listen for the cue). Hunger drains over time and faster when you dash, swing or are cold; hungry slows
+  dash recovery, starving hurts, well fed slowly heals. Hold RMB with food to eat (Duskberries from berry bushes,
+  Glowcaps, crow meat; cook Roast Crow, Berry Tarts and warming Glowcap Stew at a Campfire). Temperature falls with
+  altitude, at night and in water; fires, forges, torches, warm clothes and stew keep you warm; freezing hurts.
+  Dying leaves your Grave Coins in a glowing memory where you fell — walk into it to take them back, but die again
+  first and it's gone. Craft a Feather Bed and press **F** on it to set your respawn point and sleep through the
+  night. Head/body/legs armor slots (feather, copper, iron) reduce enemy damage and add warmth. The game now
+  pauses while the pause screen is up.
 
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

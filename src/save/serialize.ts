@@ -12,6 +12,17 @@ export interface PlayerSave {
   inventory: (Stack | null)[];
   selected: number;
   spawn: [number, number, number];
+  // --- Phase 6 (optional so older saves still load) ---
+  armor?: (Stack | null)[];
+  food?: number;
+  bodyTemp?: number;
+  /** Bed the player sleeps in / respawns at. */
+  bed?: [number, number, number] | null;
+  /** Time of day (0..1) and day count. */
+  time?: number;
+  day?: number;
+  /** Memory orb left at the last death. */
+  memory?: { x: number; y: number; z: number; coins: number } | null;
 }
 
 export interface SaveData {

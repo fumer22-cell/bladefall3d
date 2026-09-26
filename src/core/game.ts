@@ -3,7 +3,7 @@ import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
 import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, ENEMIES, PARTICLES, PLAYER, SAVE, SIM, SKY, TEST_ARENA, WORLD, type Action } from '../config';
+import { CAMERA, COMBAT, DAYNIGHT, ENEMIES, PARTICLES, PLAYER, SAVE, SIM, SKY, SURVIVAL, TEST_ARENA, WORLD, type Action } from '../config';
 import { craft, nearbyStations } from '../items/crafting';
 import { Drops } from '../items/drops';
 import { Inventory } from '../items/inventory';
@@ -26,10 +26,15 @@ import type { Combatant } from '../combat/combatant';
 import { Particles } from '../render/particles';
 import { ProjectileView } from '../render/projectileView';
 import { Renderer } from '../render/renderer';
-import { setFogColor } from '../render/voxelMaterial';
+import { setDaylight, setFogColor } from '../render/voxelMaterial';
+import { MemoryView } from '../render/memoryView';
+import { DayNight } from '../survival/daynight';
+import { Hunger } from '../survival/hunger';
+import { Memory } from '../survival/memory';
+import { Temperature } from '../survival/temperature';
 import { Viewmodel, type HeldHand } from '../render/viewmodel';
 import { Hud } from '../ui/hud';
-import { COLOR, SHAPE, SOLID } from '../world/blocks';
+import { Block, COLOR, SHAPE, SOLID } from '../world/blocks';
 import { CS } from '../world/chunk';
 import { WorldStreamer } from '../world/streamer';
 import { buildTestArena } from '../world/testArena';
@@ -52,7 +57,9 @@ export interface GameOptions {
 }
 
 const hexRGB = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
-const SKY_RGB = hexRGB(SKY.HAZE);
+const DUSK_RGB = hexRGB(SKY.HAZE);
+const DAY_RGB = hexRGB(DAYNIGHT.DAY_HAZE);
+const NIGHT_RGB = hexRGB(DAYNIGHT.NIGHT_HAZE);
 const CAVE_RGB = hexRGB(WORLD.CAVE_FOG_COLOR);
 
 export class Game {
@@ -97,11 +104,30 @@ export class Game {
   /** Seconds played since the last save. */
   private playTime = 0;
 
+  // --- Survival ---
+  readonly daynight = new DayNight();
+  readonly hunger = new Hunger();
+  readonly temperature = new Temperature();
+  readonly memory = new Memory();
+  private readonly memoryView: MemoryView;
+  /** Hunger, cold, death memories and beds only run in world mode. */
+  private readonly survival: boolean;
+  /** Bed block the player respawns at. */
+  private bed: [number, number, number] | null = null;
+  /** Seconds left of warmth from hot food. */
+  private warmBuff = 0;
+  private sleepTimer = 0;
+  private slept = false;
+  private deathNote = '';
+  /** Last spot the player stood on dry ground (memory orbs go here after falling into the void). */
+  private readonly lastSafe = new Vector3();
+
   constructor(root: HTMLElement, opts: GameOptions = { mode: 'world' }) {
     this.mode = opts.mode;
     this.save = opts.save ?? null;
     this.persist = opts.persist ?? false;
     const mode = this.mode;
+    this.survival = mode === 'world';
     this.renderer = new Renderer(root);
     this.input = new Input(this.renderer.canvas);
     this.hud = new Hud(root);
@@ -162,7 +188,13 @@ export class Game {
 
     const sp = this.save?.player;
     if (sp) {
-      this.inventory.load(sp.inventory, sp.selected);
+      this.inventory.load(sp.inventory, sp.selected, sp.armor ?? []);
+      if (sp.food !== undefined) this.hunger.food = sp.food;
+      if (sp.bodyTemp !== undefined) this.temperature.body = sp.bodyTemp;
+      this.bed = sp.bed ?? null;
+      if (sp.time !== undefined) this.daynight.time = sp.time;
+      if (sp.day !== undefined) this.daynight.day = sp.day;
+      this.memory.orb = sp.memory ?? null;
     } else {
       // Starting kit.
       this.inventory.add('rusty_sword', 1);
@@ -170,11 +202,16 @@ export class Game {
     }
 
     this.highlight = new BlockHighlight(this.renderer.scene);
-    this.combat = new CombatSystem(this.player, this.world, () => this.respawn());
+    if (!this.survival) {
+      this.daynight.time = DAYNIGHT.ARENA_TIME;
+      this.daynight.frozen = true;
+    }
+    this.combat = new CombatSystem(this.player, this.world, () => this.onRespawn());
     this.particles = new Particles(this.renderer.scene, this.world);
     this.projectileView = new ProjectileView(this.renderer.scene);
     this.dropView = new DropView(this.renderer.scene);
     this.fireflies = new Fireflies(this.renderer.scene, this.world);
+    this.memoryView = new MemoryView(this.renderer.scene);
     this.addDummy(this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z - 6);
     this.respawn();
     if (sp) {
@@ -219,8 +256,24 @@ export class Game {
     const list = this.combat.enemies;
     if (this.streamer && this.ready) {
       const despawn = new Set<Combatant>();
-      for (const e of this.spawner.update(dt, this.world, this.player.pos, list, despawn)) this.addEnemy(e);
+      const env = { daylight: this.daynight.daylight(), night: this.daynight.night() };
+      for (const e of this.spawner.update(dt, this.world, this.player.pos, list, despawn, env)) this.addEnemy(e);
       for (const e of despawn) this.removeEnemy(e);
+    }
+    const daylight = this.daynight.daylight();
+    for (const e of list) {
+      const c = e.center();
+      const l = this.world.getLight(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z));
+      e.lit = Math.max(((l >> 4) / 15) * daylight, (l & 15) / 15);
+      // Husks smoulder and crumble in strong sunlight.
+      if (e.kind === 'husk' && e.alive && daylight > 0.85 && l >> 4 >= 13) {
+        e.health -= ENEMIES.SUN_BURN_DPS * dt;
+        if (Math.random() < dt * 8) this.particles.burst(c, { count: 3, color: 0x484957, color2: 0xdc7629, speed: 1.2, life: 0.8, size: 0.1, gravity: -2 });
+        if (e.health <= 0) {
+          e.health = 0;
+          e.kill();
+        }
+      }
     }
     for (const e of [...list]) if (e.removable) this.removeEnemy(e);
     const S = ENEMIES.SEPARATION;
@@ -241,9 +294,39 @@ export class Game {
 
   private respawn(): void {
     const s = this.spawnPoint;
-    this.player.teleport(s.x, s.y, s.z);
+    const b = this.bed;
+    if (b && this.world.isLoaded(b[0], b[2]) && this.world.getBlock(b[0], b[1], b[2]) === Block.BED) {
+      this.player.teleport(b[0] + 0.5, b[1] + 1, b[2] + 0.5);
+    } else {
+      if (b && this.world.isLoaded(b[0], b[2])) {
+        this.bed = null;
+        this.hud.toast('Your bed is gone: back to the world spawn', 3);
+      }
+      this.player.teleport(s.x, s.y, s.z);
+    }
     this.player.yaw = 0;
     this.player.pitch = 0;
+  }
+
+  /** Back from death. */
+  private onRespawn(): void {
+    this.respawn();
+    if (!this.survival) return;
+    this.hunger.reset(Math.max(this.hunger.food, SURVIVAL.RESPAWN_FOOD));
+    this.temperature.reset();
+    this.warmBuff = 0;
+  }
+
+  /** Died: coins stay behind in a memory where you fell (the previous memory is lost). */
+  private onDeath(): void {
+    if (!this.survival) return;
+    const p = this.player.pos;
+    const at = p.y < 1 ? this.lastSafe : p;
+    const { lost, stored } = this.memory.onDeath(at.x, at.y + 0.9, at.z, this.inventory);
+    this.deathNote =
+      (stored > 0 ? `Your ${stored} Grave Coins linger where you fell` : 'Your memory holds nothing') +
+      (lost > 0 ? ` · ${lost} coins from your last death are gone` : '');
+    void this.saveNow();
   }
 
   /**
@@ -308,7 +391,10 @@ export class Game {
     const fx = this.particles;
     const look = () => this.combat.lookDir();
 
-    ev.on('swing', (e) => play(e.heavy ? 'swingHeavy' : 'swing'));
+    ev.on('swing', (e) => {
+      play(e.heavy ? 'swingHeavy' : 'swing');
+      if (this.survival) this.hunger.exert(SURVIVAL.FOOD_PER_SWING);
+    });
     ev.on('feint', () => play('feint'));
     ev.on('telegraph', (e) => play(e.unblockable ? 'telegraphRed' : 'telegraph'));
     ev.on('hit', (e) => {
@@ -373,6 +459,7 @@ export class Game {
     ev.on('playerDeath', () => {
       play('death');
       rig.addTrauma(0.8);
+      this.onDeath();
     });
   }
 
@@ -405,17 +492,25 @@ export class Game {
 
   private step(dt: number): void {
     const { player, combat, input } = this;
-    if (!this.ready) {
+    // Not ready yet, or paused (pointer released without the inventory open): the world waits.
+    if (!this.ready || (!input.locked && !this.inventoryUI.isOpen)) {
       input.endStep();
       return;
     }
     this.syncHeld();
-    const move = this.moveIntent(combat.inputLocked());
+    this.daynight.update(dt);
+    const move = this.moveIntent(combat.inputLocked() || this.sleepTimer > 0);
     const dashed = move.dashPressed && player.dashPips >= 1;
     stepMovement(player, move, this.world, dt);
-    if (dashed) play('dash');
-    combat.step(dt, this.combatIntent(dashed), input.locked && input.wasPressed('interact'));
+    if (dashed) {
+      play('dash');
+      if (this.survival) this.hunger.exert(SURVIVAL.FOOD_PER_DASH);
+    }
+    let interact = input.locked && input.wasPressed('interact');
+    if (interact && this.survival && this.tryBed()) interact = false;
+    combat.step(dt, this.combatIntent(dashed), interact);
     this.updateEnemies(dt);
+    if (this.survival) this.stepSurvival(dt);
 
     const b = this.builder;
     b.update(
@@ -436,6 +531,7 @@ export class Game {
           { count: 24, color: COLOR[e.id], speed: 4, life: 0.9, size: 0.12 },
         );
         if (e.drop) this.drops.spawn(e.x + 0.5, e.y + 0.5, e.z + 0.5, e.drop);
+        if (e.id === Block.BERRY_BUSH) for (let k = Math.floor(Math.random() * 2) + 1; k > 0; k--) this.drops.spawn(e.x + 0.5, e.y + 0.5, e.z + 0.5, 'duskberries');
         play('break');
       } else if (e.type === 'placed') {
         this.viewmodel.pulse();
@@ -452,8 +548,96 @@ export class Game {
       play('pickup');
     }
 
-    if (player.pos.y < -30) this.respawn();
+    if (player.pos.y < -30) {
+      // The void kills in the world (the memory goes to the last safe ground); the arena just resets.
+      if (this.survival && !combat.isDead()) combat.hurtPlayer(1e6);
+      else if (!this.survival) this.respawn();
+    }
     input.endStep();
+  }
+
+  /** Hunger, eating, temperature, healing from food, sleeping, reclaiming memories. */
+  private stepSurvival(dt: number): void {
+    const { player, combat, input, hunger } = this;
+    if (player.grounded && !player.inWater) this.lastSafe.copy(player.pos);
+
+    // Sleeping: fade out, skip to morning halfway, fade back in.
+    if (this.sleepTimer > 0) {
+      this.sleepTimer -= dt;
+      if (!this.slept && this.sleepTimer < DAYNIGHT.SLEEP_FADE / 2) {
+        this.slept = true;
+        this.daynight.skipToMorning();
+        for (const e of [...combat.enemies]) if (e.kind !== 'dummy') this.removeEnemy(e);
+        hunger.exert(8);
+        void this.saveNow();
+      }
+    }
+    if (combat.isDead()) {
+      hunger.eating = 0;
+      return;
+    }
+
+    // Eating: hold RMB with food in hand.
+    const stack = this.inventory.held;
+    const food = stack ? ITEMS[stack.item]?.food : undefined;
+    const missing = COMBAT.PLAYER_MAX_HEALTH - combat.combat.health;
+    const wantsEat = !!food && input.locked && input.isHeld('block') && this.sleepTimer <= 0 && hunger.wants(food, missing);
+    if (hunger.updateEating(dt, wantsEat) && food) {
+      this.inventory.consumeHeld();
+      hunger.eat(food);
+      if (food.warm) this.warmBuff = SURVIVAL.WARM_BUFF_TIME;
+      play('eat');
+    } else if (wantsEat && Math.random() < dt * 5) play('eat');
+
+    this.warmBuff = Math.max(0, this.warmBuff - dt);
+    const head = this.world.getLight(Math.floor(player.pos.x), Math.floor(player.pos.y + PLAYER.EYE_HEIGHT), Math.floor(player.pos.z));
+    const freeze = this.temperature.update(dt, this.world, player.pos.x, player.pos.y, player.pos.z, {
+      skyLight: head >> 4,
+      night: this.daynight.night(),
+      inWater: player.inWater,
+      insulation: this.inventory.warmth() + (this.warmBuff > 0 ? SURVIVAL.WARM_BUFF : 0),
+    });
+    const { heal, damage } = hunger.update(dt, this.temperature.foodMult());
+    const c = combat.combat;
+    if (heal > 0) c.health = Math.min(COMBAT.PLAYER_MAX_HEALTH, c.health + heal);
+    for (const d of [damage, freeze]) {
+      if (d <= 0) continue;
+      combat.hurtPlayer(d);
+      this.hud.flash('hurt', 0.45);
+      play('hurt');
+    }
+    player.regenMult = hunger.regenMult();
+    player.speedMult *= this.temperature.moveMult() * (hunger.eating > 0 ? SURVIVAL.EAT_MOVE_MULT : 1);
+    combat.damageTakenMult = 1 - this.inventory.defense();
+
+    const got = this.memory.update(player.pos.x, player.pos.y, player.pos.z, this.inventory);
+    if (got > 0) {
+      this.hud.toast(`Memory reclaimed: +${got} Grave Coins`, 2.5);
+      this.particles.burst({ x: player.pos.x, y: player.pos.y + 1, z: player.pos.z }, { count: 40, color: 0x66c1d6, color2: 0xb1eeee, speed: 4, life: 0.9, size: 0.08, gravity: -1 });
+      play('memory');
+    }
+  }
+
+  /** F on a bed: set respawn there, and sleep through the night if it's safe. Returns true if handled. */
+  private tryBed(): boolean {
+    const t = this.builder.target;
+    if (!t || this.world.getBlock(t.x, t.y, t.z) !== Block.BED || this.combat.deathblowTarget()) return false;
+    if (this.sleepTimer > 0) return true;
+    this.bed = [t.x, t.y, t.z];
+    if (!this.daynight.isNight()) {
+      this.hud.toast('Respawn point set. You can only sleep at night.', 2.5);
+      return true;
+    }
+    const R = DAYNIGHT.SLEEP_ENEMY_RADIUS;
+    const near = this.combat.enemies.some((e) => e.kind !== 'dummy' && e.alive && e.pos.distanceTo(this.player.pos) < R);
+    if (near) {
+      this.hud.toast('Respawn point set. You cannot rest with enemies nearby.', 2.5);
+      return true;
+    }
+    this.sleepTimer = DAYNIGHT.SLEEP_FADE;
+    this.slept = false;
+    play('sleep');
+    return true;
   }
 
   private frame(alpha: number, frameDt: number): void {
@@ -537,6 +721,27 @@ export class Game {
     this.hud.update(player, combat, cam, frameDt);
     this.hud.updateItems(this.inventory, builder, this.debugWorldInfo(), frameDt);
     this.dropView.update(this.drops, alpha, frameDt);
+    this.memoryView.update(this.memory.orb, frameDt);
+    const sleepK = this.sleepTimer > 0 ? 1 - Math.abs(this.sleepTimer / DAYNIGHT.SLEEP_FADE - 0.5) * 2 : 0;
+    this.hud.setSleep(Math.min(1, sleepK * 1.6), this.slept ? `Day ${this.daynight.day}` : '…');
+    const dn = this.daynight;
+    this.hud.updateSurvival(
+      {
+        food: this.hunger.food,
+        healPool: this.hunger.healPool,
+        eating: this.hunger.eating,
+        hunger: this.hunger.state,
+        temp: this.temperature.state,
+        bodyTemp: this.temperature.body,
+        warmBuff: this.warmBuff > 0,
+        day: dn.day,
+        phase: dn.phaseName(),
+        night: dn.isNight(),
+        memory: this.memory.orb,
+        deathNote: this.survival ? this.deathNote : '',
+      },
+      cam,
+    );
     this.chunks.update(this.world, cam.position.x, cam.position.y, cam.position.z);
     this.renderer.render(this.viewmodel.scene);
   }
@@ -584,6 +789,13 @@ export class Game {
       inventory: this.inventory.serialize(),
       selected: this.inventory.selected,
       spawn: [this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z],
+      armor: this.inventory.serializeArmor(),
+      food: this.hunger.food,
+      bodyTemp: this.temperature.body,
+      bed: this.bed,
+      time: this.daynight.time,
+      day: this.daynight.day,
+      memory: this.memory.orb,
     };
     s.edits = editsToSave(this.world.edits);
     try {
@@ -602,14 +814,29 @@ export class Game {
     const sky = this.world.getLight(Math.floor(cam.x), Math.floor(cam.y), Math.floor(cam.z)) >> 4;
     this.caveMix = damp(this.caveMix, 1 - Math.min(1, sky / 12), 2.5, dt);
     const t = this.caveMix;
-    const r = SKY_RGB[0] + (CAVE_RGB[0] - SKY_RGB[0]) * t;
-    const g = SKY_RGB[1] + (CAVE_RGB[1] - SKY_RGB[1]) * t;
-    const b = SKY_RGB[2] + (CAVE_RGB[2] - SKY_RGB[2]) * t;
-    setFogColor([this.chunks.opaqueMat, this.chunks.waterMat], r, g, b);
+    // Time of day: blend the day, dusk and night looks.
+    const dn = this.daynight;
+    const dusk = dn.dusk();
+    const mix = { day: dn.dayness() * (1 - dusk), dusk, night: dn.night() * (1 - dusk) };
+    const sum = mix.day + mix.dusk + mix.night || 1;
+    const blend = (a: readonly number[], b: readonly number[], c: readonly number[], i: number) =>
+      (a[i] * mix.day + b[i] * mix.dusk + c[i] * mix.night) / sum;
+    const haze = [0, 1, 2].map((i) => blend(DAY_RGB, DUSK_RGB, NIGHT_RGB, i));
+    const tint = [0, 1, 2].map((i) => blend(DAYNIGHT.DAY_TINT, DAYNIGHT.DUSK_TINT, DAYNIGHT.NIGHT_TINT, i));
+    const mats = [this.chunks.opaqueMat, this.chunks.waterMat];
+    const daylight = dn.daylight();
+    setDaylight(mats, daylight, tint);
+    this.renderer.sky.setTimeOfDay(dn.time, mix);
+    this.renderer.setDaylight(daylight, tint, this.renderer.sky.sunDir);
+
+    const r = haze[0] + (CAVE_RGB[0] - haze[0]) * t;
+    const g = haze[1] + (CAVE_RGB[1] - haze[1]) * t;
+    const b = haze[2] + (CAVE_RGB[2] - haze[2]) * t;
+    setFogColor(mats, r, g, b);
     this.renderer.setSkyColor(r, g, b);
     this.clock += dt;
     this.renderer.sky.update(this.renderer.camera.position, this.clock, t);
-    if (this.ready) this.fireflies.update(dt, this.renderer.camera, t);
+    if (this.ready) this.fireflies.update(dt, this.renderer.camera, Math.max(t, dn.night()));
   }
 
   private debugWorldInfo(): string {

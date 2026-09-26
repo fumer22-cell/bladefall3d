@@ -25,7 +25,10 @@ export type SfxName =
   | 'place'
   | 'pickup'
   | 'groan'
-  | 'caw';
+  | 'caw'
+  | 'eat'
+  | 'memory'
+  | 'sleep';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -171,6 +174,17 @@ export function play(name: SfxName): void {
       break;
     case 'pickup':
       tone('sine', 880, 0.1, 0.06, 1320);
+      break;
+    case 'eat':
+      noise('bandpass', 900, 2, 0.12, 0.08);
+      noise('bandpass', 700, 2, 0.1, 0.1);
+      break;
+    case 'memory':
+      tone('sine', 523, 0.12, 0.5, 784);
+      tone('sine', 784, 0.08, 0.7, 1046, 0.12);
+      break;
+    case 'sleep':
+      tone('sine', 330, 0.08, 1.2, 220);
       break;
     case 'place':
       tone('sine', 220, 0.25, 0.07, 140);

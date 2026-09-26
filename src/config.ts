@@ -273,6 +273,82 @@ export const SAVE = {
   AUTOSAVE_INTERVAL: 45,
 } as const;
 
+export const DAYNIGHT = {
+  /** Seconds for a full day at daytime speed. */
+  DAY_LENGTH: 840,
+  /** Night passes this much faster than day. */
+  NIGHT_SPEED: 1.5,
+  /** Time of day for a new world: 0 = sunrise, 0.25 = noon, 0.5 = sunset, 0.75 = midnight. */
+  START_TIME: 0.06,
+  /** Arena mode is frozen at this time (golden dusk). */
+  ARENA_TIME: 0.47,
+  /** Sky-light brightness at midnight (moonlight). */
+  NIGHT_LIGHT: 0.45,
+  /** Colour of sky light by time of day. */
+  DAY_TINT: [1.0, 0.95, 0.86],
+  DUSK_TINT: [1.0, 0.82, 0.66],
+  NIGHT_TINT: [0.62, 0.74, 1.08],
+  /** Fog/haze colours. */
+  DAY_HAZE: 0x8ea3be,
+  NIGHT_HAZE: 0x1b1a33,
+  /** Time you wake at after sleeping. */
+  WAKE_TIME: 0.02,
+  /** Can't sleep with enemies this close. */
+  SLEEP_ENEMY_RADIUS: 16,
+  SLEEP_FADE: 2.4,
+} as const;
+
+export const SURVIVAL = {
+  FOOD_MAX: 100,
+  RESPAWN_FOOD: 60,
+  /** Food lost per second just living (full → empty in ~25 min). */
+  FOOD_DRAIN: 100 / (25 * 60),
+  FOOD_PER_DASH: 0.35,
+  FOOD_PER_SWING: 0.12,
+  /** Below this you're hungry: dash pips regen slower and no passive healing. */
+  HUNGRY_BELOW: 25,
+  HUNGRY_REGEN_MULT: 0.55,
+  /** Above this you slowly heal (hp/s). */
+  WELL_FED_ABOVE: 70,
+  WELL_FED_REGEN: 0.3,
+  /** At 0 food you take this much damage every STARVE_INTERVAL seconds. */
+  STARVE_DAMAGE: 3,
+  STARVE_INTERVAL: 4,
+  /** Hold RMB with food in hand this long to eat. */
+  EAT_TIME: 1.1,
+  EAT_MOVE_MULT: 0.55,
+  /** Food heals over time at this rate (hp/s) from a pool. */
+  FOOD_HEAL_RATE: 5,
+
+  // --- Temperature (°C-ish "feels like") ---
+  TEMP_BASE: 17,
+  /** Above this height the air gets colder by TEMP_PER_BLOCK per block. */
+  TEMP_ALTITUDE_START: 88,
+  TEMP_PER_BLOCK: 0.32,
+  TEMP_NIGHT: -9,
+  TEMP_WATER: -9,
+  /** Out of the sky (caves, indoors) the temperature settles toward this. */
+  TEMP_SHELTER: 13,
+  /** Heat sources: bonus °C at the source, radius in blocks (fades linearly). */
+  HEAT: { campfire: [18, 6], forge: [14, 5], lantern: [5, 3], torch: [4, 2.5] },
+  /** Body temperature moves toward the felt temperature at this rate (1/s). */
+  TEMP_ADAPT: 0.07,
+  COLD_BELOW: 6,
+  FREEZING_BELOW: -2,
+  COLD_FOOD_MULT: 1.6,
+  FREEZE_DAMAGE: 2,
+  FREEZE_INTERVAL: 3,
+  FREEZE_MOVE_MULT: 0.88,
+  HOT_ABOVE: 34,
+  /** Warming food adds this many °C for WARM_BUFF_TIME seconds. */
+  WARM_BUFF: 12,
+  WARM_BUFF_TIME: 90,
+
+  // --- Death ---
+  /** Walk within this distance of your memory to reclaim it. */
+  MEMORY_PICKUP_RADIUS: 1.8,
+} as const;
+
 export const TEST_ARENA = {
   SIZE: 160,
   FLOOR_TOP: 4,
@@ -516,6 +592,15 @@ export const ENEMIES = {
   DESPAWN_DIST: 90,
   MAX_HUSKS: 7,
   MAX_CROWS: 3,
+  /** At night Husks roam the surface too: higher cap, faster spawning, stronger "nightborn" Husks. */
+  MAX_HUSKS_NIGHT: 11,
+  NIGHT_SPAWN_INTERVAL: 0.8,
+  MAX_CROWS_NIGHT: 1,
+  NIGHTBORN_HEALTH_MULT: 1.4,
+  NIGHTBORN_DAMAGE_MULT: 1.25,
+  NIGHTBORN_LOOT_MULT: 2,
+  /** Husks caught in strong daylight smoulder and crumble (damage/s). */
+  SUN_BURN_DPS: 9,
   /** Husks only spawn where block (torch) light is at most this: torches make safe zones. */
   HUSK_MAX_BLOCK_LIGHT: 6,
   /** Crows need open sky. */
@@ -554,7 +639,7 @@ export const ENEMIES = {
       overhead: { name: 'overhead', windup: 1.05, active: 0.12, recovery: 0.8, damage: 24, posture: 34, reach: 3.1, arc: 40, unblockable: false },
       lunge: { name: 'lunge', windup: 0.85, active: 0.25, recovery: 0.9, damage: 20, posture: 25, reach: 2.4, arc: 60, unblockable: true },
     } satisfies Record<string, EnemyAttackDef>,
-    LOOT: { bone: [1, 2], raw_copper: [0, 1] },
+    LOOT: { bone: [1, 2], raw_copper: [0, 1], coin: [1, 3] },
   },
 
   CROW: {
@@ -575,7 +660,7 @@ export const ENEMIES = {
     ATTACKS: {
       peck: { name: 'peck', windup: 0.35, active: 0.12, recovery: 0.5, damage: 10, posture: 12, reach: 2.3, arc: 80, unblockable: false },
     } satisfies Record<string, EnemyAttackDef>,
-    LOOT: { feather: [1, 3] },
+    LOOT: { feather: [1, 3], crow_meat: [0, 1], coin: [0, 2] },
   },
 } as const;
 

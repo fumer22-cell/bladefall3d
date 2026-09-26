@@ -22,9 +22,13 @@ function redDot(parent: Group, y: number, z: number): Mesh {
   return m;
 }
 
-function glow(mat: MeshLambertMaterial, tel: 'none' | 'yellow' | 'red', time: number): void {
+/** Telegraph glow. In darkness (`lit` near 0) it fades to a faint flicker: listen for the cue instead. */
+function glow(mat: MeshLambertMaterial, tel: 'none' | 'yellow' | 'red', time: number, lit = 1): void {
   if (tel === 'none') mat.emissive.setRGB(0, 0, 0);
-  else mat.emissive.copy(tel === 'red' ? RED : YELLOW).multiplyScalar(0.75 + 0.25 * Math.sin(time * 25));
+  else {
+    const seen = 0.12 + 0.88 * Math.min(1, lit * 1.6);
+    mat.emissive.copy(tel === 'red' ? RED : YELLOW).multiplyScalar((0.75 + 0.25 * Math.sin(time * 25)) * seen);
+  }
 }
 
 /** Hunched revenant: rags over pale flesh, a rusted blade in the right hand. */
@@ -37,7 +41,9 @@ export class HuskView implements CombatantView {
   private readonly armL = new Group();
   private readonly bladeMat = new MeshLambertMaterial({ color: 0x7a5a48 });
   private readonly skinMat = new MeshLambertMaterial({ color: 0x8e9480 });
+  private readonly eyeMat = new MeshBasicMaterial({ color: 0xffd9a0 });
   private readonly dot: Mesh;
+  private styled = false;
   private armRx = 0;
   private lean = 0;
   private fall = 0;
@@ -54,8 +60,8 @@ export class HuskView implements CombatantView {
     this.body.position.set(0, 0.85, 0);
     box(this.body, 0.56, 0.7, 0.34, 0, 0.35, 0, rags);
     box(this.body, 0.36, 0.34, 0.34, 0, 0.86, -0.12, this.skinMat); // drooping head
-    box(this.body, 0.08, 0.06, 0.02, -0.08, 0.9, -0.3, 0xffd9a0); // dim eyes
-    box(this.body, 0.08, 0.06, 0.02, 0.08, 0.9, -0.3, 0xffd9a0);
+    box(this.body, 0.08, 0.06, 0.02, -0.08, 0.9, -0.3, this.eyeMat); // dim eyes
+    box(this.body, 0.08, 0.06, 0.02, 0.08, 0.9, -0.3, this.eyeMat);
     this.arm.position.set(0.36, 0.62, 0);
     this.arm.rotation.order = 'YXZ';
     this.body.add(this.arm);
@@ -74,6 +80,14 @@ export class HuskView implements CombatantView {
   update(e: Combatant, alpha: number, dt: number): void {
     const h = e as Husk;
     this.time += dt;
+    if (!this.styled) {
+      this.styled = true;
+      // Nightborn: ember-red eyes and darker, bruised skin.
+      if (h.nightborn) {
+        this.eyeMat.color.set(0xff3a2a);
+        this.skinMat.color.set(0x5e6a62);
+      }
+    }
     this.root.position.set(lerp(h.prevPos.x, h.pos.x, alpha), lerp(h.prevPos.y, h.pos.y, alpha), lerp(h.prevPos.z, h.pos.z, alpha));
     this.root.rotation.y = h.yaw;
     // Shambling walk.
@@ -104,7 +118,7 @@ export class HuskView implements CombatantView {
     this.fall = h.alive ? 0 : Math.min(1, this.fall + dt * 3);
     this.root.rotation.x = -this.fall * 1.45;
     this.root.visible = !(h.phase === 'dead' && h.t > COMBAT.DEATHBLOW_TIME + 0.8);
-    glow(this.bladeMat, h.telegraph(), this.time);
+    glow(this.bladeMat, h.telegraph(), this.time, h.lit ?? 1);
     this.skinMat.emissive.setRGB(0, 0, 0).addScalar(Math.max(0, 1 - h.hurtTime * 8) * 0.8);
     this.dot.visible = staggered;
   }
@@ -156,7 +170,7 @@ export class CrowView implements CombatantView {
     this.fall = c.alive ? 0 : Math.min(1, this.fall + dt * 3);
     this.root.rotation.z = this.fall * 1.6;
     this.root.visible = !(c.phase === 'dead' && c.t > COMBAT.DEATHBLOW_TIME + 0.8);
-    glow(this.bodyMat, c.telegraph(), this.time);
+    glow(this.bodyMat, c.telegraph(), this.time, c.lit ?? 1);
     if (c.telegraph() === 'none') this.bodyMat.emissive.setRGB(0, 0, 0).addScalar(Math.max(0, 1 - c.hurtTime * 8) * 0.8);
     this.dot.visible = c.staggered;
   }

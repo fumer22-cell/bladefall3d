@@ -39,6 +39,10 @@ export interface Combatant {
   readonly removable: boolean;
   /** Height of the body (for health bars). */
   readonly height: number;
+  /** Multiplier on the damage this enemy's attacks deal (nightborn Husks). */
+  readonly damageMult?: number;
+  /** How well lit the enemy is, 0..1 (set by the game; darkness hides telegraphs). */
+  lit?: number;
 
   update(dt: number, world: VoxelQuery, player: PlayerView): void;
   hurtbox(): AABB;

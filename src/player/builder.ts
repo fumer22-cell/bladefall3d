@@ -108,6 +108,8 @@ export class Builder {
       !boxOverlapsSolid(world, { minX: x - 0.5, maxX: x + 1.5, minZ: z - 0.5, maxZ: z + 1.5, minY: y - 0.5, maxY: y + 0.5 })
     )
       return;
+    // Plants and campfires need ground under them.
+    if (SHAPE[id] === 'plant' && !world.isSolid(x, y - 1, z)) return;
     world.setBlock(x, y, z, id);
     inv.consumeHeld();
     this.placeCooldown = BUILD.PLACE_REPEAT;

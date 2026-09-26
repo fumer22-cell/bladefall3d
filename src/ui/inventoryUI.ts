@@ -1,10 +1,11 @@
 import { INVENTORY } from '../config';
 import { RECIPES, canCraft, type Recipe, type Station } from '../items/crafting';
 import type { Inventory, Stack } from '../items/inventory';
+import { ARMOR_SLOT_NAMES } from '../items/items';
 import { itemName, stackHTML } from './itemIcon';
 
-const STATION_NAMES: Record<Station, string> = { hand: 'Hands', workbench: 'Workbench', forge: 'Forge', anvil: 'Anvil' };
-const STATION_ORDER: Station[] = ['hand', 'workbench', 'forge', 'anvil'];
+const STATION_NAMES: Record<Station, string> = { hand: 'Hands', campfire: 'Campfire', workbench: 'Workbench', forge: 'Forge', anvil: 'Anvil' };
+const STATION_ORDER: Station[] = ['hand', 'campfire', 'workbench', 'forge', 'anvil'];
 
 /**
  * Inventory + crafting screen. Click to pick up / put down stacks, right-click for half,
@@ -13,6 +14,8 @@ const STATION_ORDER: Station[] = ['hand', 'workbench', 'forge', 'anvil'];
 export class InventoryUI {
   private readonly root: HTMLDivElement;
   private readonly slotEls: HTMLDivElement[] = [];
+  private readonly armorEls: HTMLDivElement[] = [];
+  private readonly armorStats: HTMLDivElement;
   private readonly recipeList: HTMLDivElement;
   private readonly stationLine: HTMLDivElement;
   private readonly cursorEl: HTMLDivElement;
@@ -37,9 +40,10 @@ export class InventoryUI {
       <div class="inv-panel">
         <div class="inv-left">
           <h2>Inventory</h2>
+          <div class="inv-armor"><div class="armor-slots"></div><div class="armor-stats"></div></div>
           <div class="inv-grid backpack"></div>
           <div class="inv-grid hotbar-row"></div>
-          <p class="inv-help">Click: pick up / place · Right-click: half · Shift-click: move to hotbar/backpack · E, Tab or Esc: close</p>
+          <p class="inv-help">Click: pick up / place · Right-click: half · Shift-click: move to hotbar/backpack, or wear armor · E, Tab or Esc: close</p>
         </div>
         <div class="inv-right">
           <h2>Crafting</h2>
@@ -54,6 +58,21 @@ export class InventoryUI {
     this.recipeList = this.root.querySelector('.recipes')!;
     this.stationLine = this.root.querySelector('.inv-stations')!;
 
+    this.armorStats = this.root.querySelector('.armor-stats')!;
+    const armorRow = this.root.querySelector('.armor-slots')!;
+    ARMOR_SLOT_NAMES.forEach((name, i) => {
+      const el = document.createElement('div');
+      el.className = 'slot armor';
+      el.dataset.label = name;
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (e.shiftKey && !this.cursor) this.inv.unequip(i);
+        else this.cursor = this.inv.clickArmor(i, this.cursor);
+        this.render();
+      });
+      armorRow.appendChild(el);
+      this.armorEls.push(el);
+    });
     const backpack = this.root.querySelector('.backpack')!;
     const hotbar = this.root.querySelector('.hotbar-row')!;
     for (let i = 0; i < INVENTORY.SLOTS; i++) {
@@ -129,6 +148,12 @@ export class InventoryUI {
       el.title = this.inv.slots[i] ? itemName(this.inv.slots[i]!.item) : '';
       el.classList.toggle('sel', i === this.inv.selected);
     });
+    this.armorEls.forEach((el, i) => {
+      const a = this.inv.armor[i];
+      el.innerHTML = a ? stackHTML(a) : `<span class="armor-label">${ARMOR_SLOT_NAMES[i]}</span>`;
+      el.title = a ? itemName(a.item) : `${ARMOR_SLOT_NAMES[i]} armor`;
+    });
+    this.armorStats.innerHTML = `Armor <b>${Math.round(this.inv.defense() * 100)}%</b><br>Warmth <b>+${this.inv.warmth()}°</b>`;
     this.cursorEl.innerHTML = stackHTML(this.cursor);
     this.cursorEl.hidden = !this.cursor;
 

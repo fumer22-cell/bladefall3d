@@ -151,3 +151,42 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a12; fon
 .menu .danger { border-color: rgba(255,120,110,.5); color: #ffb0a8; }
 .menu .empty, .menu .note { opacity: .55; font-size: 12px; margin: 0; }
 .menu .arena { align-self: center; background: none; border: none; opacity: .6; text-decoration: underline; }
+
+/* --- Survival (Phase 6) --- */
+.icon.food { inset: 12px 10px 10px; border-radius: 45% 45% 40% 40%; background: var(--c); box-shadow: inset -3px -3px 0 rgba(0,0,0,.3), inset 2px 2px 0 rgba(255,255,255,.2); }
+.icon.armor { inset: 9px 11px 8px; border-radius: 3px 3px 10px 10px; background: var(--c); box-shadow: inset -3px -3px 0 rgba(0,0,0,.3), inset 0 3px 0 rgba(255,255,255,.2); }
+.inv-armor { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.armor-slots { display: flex; gap: 3px; }
+.slot.armor { cursor: pointer; border-color: #3a2a1a; }
+.slot.armor:hover { border-color: rgba(255,255,255,.5); }
+.armor-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9px; opacity: .4; letter-spacing: 1px; text-transform: uppercase; }
+.armor-stats { font-size: 12px; line-height: 1.5; opacity: .85; }
+.armor-stats b { color: var(--gold-hi); }
+.bar.food > .fill { background: #b78021; box-shadow: inset 0 2px 0 #ecc865; }
+.bar.food.low > .fill { background: #915d17; animation: foodpulse 1s steps(2) infinite; }
+@keyframes foodpulse { 50% { opacity: .55; } }
+.bar.food { height: 8px; }
+.bar.food > .pool { position: absolute; inset: 0 auto 0 0; background: #9fe0a855; }
+.bar.eat { height: 4px; margin-top: 2px; display: none; }
+.bar.eat.on { display: block; }
+.bar.eat > .fill { background: #ecc865; box-shadow: none; transition: none; }
+.status { display: flex; gap: 4px; flex-wrap: wrap; min-height: 16px; }
+.status span { font-size: 10px; letter-spacing: 1px; padding: 1px 6px; background: rgba(0,0,0,.55); border: 1px solid var(--ink); }
+.status .cold { color: #a8c0d9; }
+.status .freezing { color: #d0dce4; background: rgba(44,66,112,.7); animation: foodpulse 1s steps(2) infinite; }
+.status .warm { color: #fdbe5d; }
+.status .hot { color: #ff8a5a; }
+.status .hungry { color: #d6a434; }
+.status .starving { color: #ff8a7a; animation: foodpulse 1s steps(2) infinite; }
+.status .fed { color: #9fe0a8; }
+.clock { position: absolute; right: 16px; top: 14px; font-size: 12px; letter-spacing: 1px; background: rgba(0,0,0,.5); padding: 4px 10px 4px 26px; white-space: nowrap; }
+.clock::before { content: ''; position: absolute; left: 8px; top: 50%; width: 11px; height: 11px; margin-top: -6px; border-radius: 50%; background: #ecc865; box-shadow: 0 0 0 1px #6a4011; }
+.clock.night::before { background: #d0dce4; box-shadow: inset -4px 0 0 #7f9fc6, 0 0 0 1px #2c4270; }
+.clock b { color: var(--gold-hi); }
+.clock.night b { color: #a8c0d9; }
+.memory-mark { position: absolute; transform: translate(-50%, -100%); font-size: 10px; letter-spacing: 1px; color: #b1eeee; text-shadow: 0 1px 0 #000; text-align: center; display: none; white-space: nowrap; }
+.memory-mark.on { display: block; }
+.memory-mark::before { content: ''; display: block; width: 9px; height: 9px; margin: 0 auto 3px; transform: rotate(45deg); background: #66c1d6; box-shadow: 0 0 0 2px #10304a, 0 0 8px #66c1d6; }
+.dead { flex-direction: column; gap: 10px; }
+.dead small { font-size: 14px; letter-spacing: 2px; font-weight: 400; color: #e6dcc1; text-shadow: 0 2px 0 #000; }
+.sleep { position: fixed; inset: 0; background: #07060c; pointer-events: none; opacity: 0; display: flex; align-items: center; justify-content: center; font-family: 'Jacquard 24', serif; font-size: 40px; color: #a8c0d9; z-index: 3; }
