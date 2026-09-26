@@ -149,8 +149,8 @@ export class Viewmodel {
     this.root.add(this.right.group, this.left.group);
     this.right.group.rotation.order = 'YXZ';
     this.left.group.rotation.order = 'YXZ';
-    this.scene.add(new HemisphereLight(0xdfe8ff, 0x3a3226, 1.6));
-    const sun = new DirectionalLight(0xffffff, 1.4);
+    this.scene.add(new HemisphereLight(0xe8dcff, 0x5a4030, 1.8));
+    const sun = new DirectionalLight(0xffe2b0, 1.8);
     sun.position.set(0.4, 1, 0.3);
     this.scene.add(sun);
     for (const w of WEAPONS) this.models.push(buildModel(w));

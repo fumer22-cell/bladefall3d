@@ -3,7 +3,7 @@ import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
 import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, PARTICLES, PLAYER, SAVE, SIM, TEST_ARENA, WORLD, type Action } from '../config';
+import { CAMERA, COMBAT, PARTICLES, PLAYER, SAVE, SIM, SKY, TEST_ARENA, WORLD, type Action } from '../config';
 import { craft, nearbyStations } from '../items/crafting';
 import { Drops } from '../items/drops';
 import { Inventory } from '../items/inventory';
@@ -11,6 +11,7 @@ import { ITEMS } from '../items/items';
 import { Builder, tierName } from '../player/builder';
 import { saveDb } from '../save/db';
 import { editsFromSave, editsToSave, type SaveData } from '../save/serialize';
+import { Fireflies } from '../render/ambient';
 import { DropView } from '../render/dropView';
 import { InventoryUI } from '../ui/inventoryUI';
 import { NO_INTENT, stepMovement, type MoveIntent } from '../player/movement';
@@ -26,7 +27,7 @@ import { setFogColor } from '../render/voxelMaterial';
 import { Viewmodel, type HeldHand } from '../render/viewmodel';
 import { Hud } from '../ui/hud';
 import { COLOR, SHAPE, SOLID } from '../world/blocks';
-import { CS, WORLD_H } from '../world/chunk';
+import { CS } from '../world/chunk';
 import { WorldStreamer } from '../world/streamer';
 import { buildTestArena } from '../world/testArena';
 import { WorkerPool } from '../world/workerPool';
@@ -48,7 +49,7 @@ export interface GameOptions {
 }
 
 const hexRGB = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
-const SKY_RGB = hexRGB(WORLD.SKY_COLOR);
+const SKY_RGB = hexRGB(SKY.HAZE);
 const CAVE_RGB = hexRGB(WORLD.CAVE_FOG_COLOR);
 
 export class Game {
@@ -76,10 +77,12 @@ export class Game {
   private frameMouseDx = 0;
   private frameMouseDy = 0;
   private caveMix = 0;
+  private clock = 0;
   readonly mode: GameMode;
   readonly inventory = new Inventory();
   readonly drops = new Drops();
   private readonly dropView: DropView;
+  private readonly fireflies: Fireflies;
   private readonly inventoryUI: InventoryUI;
   /** The save this session writes to (null in the arena). */
   private readonly save: SaveData | null;
@@ -166,6 +169,7 @@ export class Game {
     this.particles = new Particles(this.renderer.scene, this.world);
     this.projectileView = new ProjectileView(this.renderer.scene);
     this.dropView = new DropView(this.renderer.scene);
+    this.fireflies = new Fireflies(this.renderer.scene, this.world);
     this.addDummy(this.spawnPoint.x, this.spawnPoint.y, this.spawnPoint.z - 6);
     this.respawn();
     if (sp) {
@@ -198,13 +202,20 @@ export class Game {
     this.player.pitch = 0;
   }
 
-  /** Top of the ground at x, z (first solid block from the sky down), or -1 if unloaded. */
-  private surfaceY(x: number, z: number): number {
+  /**
+   * Standable ground at x, z below the floating-island band: a solid, non-water block with two
+   * clear blocks above that sunlight reaches. Returns the feet y, or −1 if none/unloaded.
+   */
+  private surfaceY(x: number, z: number, from = 110, needSky = true): number {
     if (!this.world.isLoaded(x, z)) return -1;
-    for (let y = WORLD_H - 1; y > 0; y--) {
-      const id = this.world.getBlock(x, y, z);
-      if (SOLID[id]) return y + 1;
+    const w = this.world;
+    for (let y = from; y > 1; y--) {
+      const id = w.getBlock(x, y, z);
       if (SHAPE[id] === 'water') return -1;
+      if (!SOLID[id]) continue;
+      if (SOLID[w.getBlock(x, y + 1, z)] || SOLID[w.getBlock(x, y + 2, z)]) continue;
+      if (needSky && w.getLight(x, y + 1, z) >> 4 < 13) continue; // under a roof, island or in a cave
+      return y + 1;
     }
     return -1;
   }
@@ -240,7 +251,7 @@ export class Game {
   private placeDummyInFront(dist: number): void {
     const p = this.player;
     const x = p.pos.x - Math.sin(p.yaw) * dist, z = p.pos.z - Math.cos(p.yaw) * dist;
-    let y = this.surfaceY(Math.floor(x), Math.floor(z));
+    let y = this.surfaceY(Math.floor(x), Math.floor(z), Math.floor(p.pos.y) + 4, false);
     if (y < 0) y = p.pos.y;
     this.combat.dummies[0]?.moveTo(x, y + 0.01, z);
   }
@@ -542,6 +553,9 @@ export class Game {
     const b = SKY_RGB[2] + (CAVE_RGB[2] - SKY_RGB[2]) * t;
     setFogColor([this.chunks.opaqueMat, this.chunks.waterMat], r, g, b);
     this.renderer.setSkyColor(r, g, b);
+    this.clock += dt;
+    this.renderer.sky.update(this.renderer.camera.position, this.clock, t);
+    if (this.ready) this.fireflies.update(dt, this.renderer.camera, t);
   }
 
   private debugWorldInfo(): string {

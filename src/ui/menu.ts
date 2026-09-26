@@ -36,7 +36,7 @@ export function showMainMenu(root: HTMLElement): Promise<MenuChoice> {
     el.innerHTML = `
       <div class="menu-panel">
         <h1>BLADEFALL</h1>
-        <p class="tag">PHASE 4 BUILD</p>
+        <p class="tag">A dark fantasy of blade and block</p>
         <section>
           <h3>New world</h3>
           <form class="new">

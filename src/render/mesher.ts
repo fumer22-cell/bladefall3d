@@ -1,4 +1,4 @@
-import { COLOR, OPAQUE, SHAPE } from '../world/blocks';
+import { BLOCK_TILES, COLOR, EMISSION, OPAQUE, SHAPE } from '../world/blocks';
 import { CS } from '../world/chunk';
 
 export interface MeshData {
@@ -11,6 +11,10 @@ export interface MeshData {
   light: Float32Array;
   /** Per-vertex ambient-occlusion level 0–3 (number of occluding neighbors). */
   ao: Float32Array;
+  /** Texture coordinates in block units (the shader wraps them per tile). */
+  uv: Float32Array;
+  /** Atlas tile per vertex (−1 = flat vertex color). */
+  tile: Float32Array;
   indices: Uint32Array;
 }
 
@@ -28,18 +32,35 @@ class Builder {
   colors: number[] = [];
   light: number[] = [];
   ao: number[] = [];
+  uv: number[] = [];
+  tile: number[] = [];
   indices: number[] = [];
 
-  /** Add a quad with corners v0..v3 (counter-clockwise seen from the front). */
-  quad(v: number[], n: [number, number, number], color: number, sky: number, blk: number, ao: number[]): void {
+  /**
+   * Add a quad with corners v0..v3 (counter-clockwise seen from the front).
+   * Textured quads (tile ≥ 0) get UVs from their positions (side faces keep v = world up)
+   * unless `uvs` is given; untextured ones use `color`.
+   */
+  quad(v: number[], n: [number, number, number], color: number, sky: number, blk: number, ao: number[], tile = -1, uvs?: number[]): void {
     const vi = this.positions.length / 3;
     this.positions.push(...v);
-    const r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
+    const textured = tile >= 0;
+    const r = textured ? 1 : ((color >> 16) & 255) / 255;
+    const g = textured ? 1 : ((color >> 8) & 255) / 255;
+    const b = textured ? 1 : (color & 255) / 255;
     for (let k = 0; k < 4; k++) {
       this.normals.push(n[0], n[1], n[2]);
       this.colors.push(r, g, b);
       this.light.push(sky / 15, blk / 15);
       this.ao.push(ao[k]);
+      this.tile.push(tile);
+      if (uvs) this.uv.push(uvs[k * 2], uvs[k * 2 + 1]);
+      else {
+        const x = v[k * 3], y = v[k * 3 + 1], z = v[k * 3 + 2];
+        if (n[0] !== 0) this.uv.push(n[0] > 0 ? -z : z, y);
+        else if (n[2] !== 0) this.uv.push(n[2] > 0 ? x : -x, y);
+        else this.uv.push(x, n[1] > 0 ? -z : z);
+      }
     }
     // Split along the diagonal with less AO contrast so gradients don't look creased.
     if (ao[0] + ao[2] < ao[1] + ao[3]) this.indices.push(vi + 1, vi + 2, vi + 3, vi + 1, vi + 3, vi);
@@ -64,6 +85,8 @@ class Builder {
       colors: new Float32Array(this.colors),
       light: new Float32Array(this.light),
       ao: new Float32Array(this.ao),
+      uv: new Float32Array(this.uv),
+      tile: new Float32Array(this.tile),
       indices: new Uint32Array(this.indices),
     };
   }
@@ -82,15 +105,35 @@ export function greedyMesh(blocks: Uint16Array, light: Uint8Array): ChunkMeshes 
   meshPass(blocks, light, idx, opaque, false);
   meshPass(blocks, light, idx, water, true);
 
-  // Torches: small non-greedy models.
+  // Torches and plants: small non-greedy models.
   for (let y = 0; y < CS; y++)
     for (let z = 0; z < CS; z++)
       for (let x = 0; x < CS; x++) {
         const i = idx(x, y, z);
-        if (SHAPE[blocks[i]] !== 'torch') continue;
-        const l = light[i];
-        opaque.box(x + 0.44, y, z + 0.44, x + 0.56, y + 0.55, z + 0.56, 0x6b4a2b, l >> 4, l & 15);
-        opaque.box(x + 0.41, y + 0.55, z + 0.41, x + 0.59, y + 0.72, z + 0.59, COLOR[blocks[i]], 15, 15);
+        const id = blocks[i];
+        const shape = SHAPE[id];
+        if (shape === 'torch') {
+          const l = light[i];
+          opaque.box(x + 0.44, y, z + 0.44, x + 0.56, y + 0.55, z + 0.56, 0x523318, l >> 4, l & 15);
+          opaque.box(x + 0.41, y + 0.55, z + 0.41, x + 0.59, y + 0.72, z + 0.59, COLOR[id], 15, 15);
+        } else if (shape === 'plant') {
+          const l = light[i];
+          const tile = BLOCK_TILES[id * 3 + 1];
+          // Hash-jitter plants a little so fields of them don't look gridded.
+          const h = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) >>> 0;
+          const ox = ((h & 15) / 15 - 0.5) * 0.3, oz = (((h >> 4) & 15) / 15 - 0.5) * 0.3;
+          const x0 = x + 0.12 + ox, x1 = x + 0.88 + ox, z0 = z + 0.12 + oz, z1 = z + 0.88 + oz, y1 = y + 1;
+          const uv = [0, 0, 1, 0, 1, 1, 0, 1];
+          const up: [number, number, number] = [0, 1, 0];
+          const flat = [0, 0, 0, 0];
+          // Two crossed quads, each emitted with both windings (visible from both sides).
+          for (const q of [
+            [x0, y, z0, x1, y, z1, x1, y1, z1, x0, y1, z0],
+            [x1, y, z1, x0, y, z0, x0, y1, z0, x1, y1, z1],
+            [x0, y, z1, x1, y, z0, x1, y1, z0, x0, y1, z1],
+            [x1, y, z0, x0, y, z1, x0, y1, z1, x1, y1, z0],
+          ]) opaque.quad(q, up, 0, l >> 4, EMISSION[id] > 0 ? 15 : l & 15, flat, tile, uv);
+        }
       }
 
   return { opaque: opaque.build(), water: water.build() };
@@ -199,12 +242,15 @@ function meshPass(
           normal[d] = dir;
           const ao = [key >> 8 & 3, key >> 10 & 3, key >> 12 & 3, key >> 14 & 3];
           const l = key & 255;
-          if (dir > 0) out.quad(verts, normal, COLOR[id], l >> 4, l & 15, ao);
+          const tile = BLOCK_TILES[id * 3 + (d === 1 ? (dir > 0 ? 0 : 2) : 1)];
+          // Glowing blocks are drawn fully lit by their own light.
+          const blk = EMISSION[id] > 0 ? 15 : l & 15;
+          if (dir > 0) out.quad(verts, normal, COLOR[id], l >> 4, blk, ao, tile);
           else {
             // Reverse winding for faces pointing -d (and keep AO attached to the same corners).
             out.quad(
               [verts[0], verts[1], verts[2], verts[9], verts[10], verts[11], verts[6], verts[7], verts[8], verts[3], verts[4], verts[5]],
-              normal, COLOR[id], l >> 4, l & 15, [ao[0], ao[3], ao[2], ao[1]],
+              normal, COLOR[id], l >> 4, blk, [ao[0], ao[3], ao[2], ao[1]], tile,
             );
           }
 

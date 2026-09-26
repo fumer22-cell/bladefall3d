@@ -8,6 +8,9 @@ export interface LightAccess {
   setLight(x: number, y: number, z: number, v: number): void;
 }
 
+/** Solid blocks at or above this height don't shadow what's below them (floating islands). */
+export const SKY_PASS_Y = 108;
+
 export const SKY = 0;
 export const BLK = 1;
 export type Channel = typeof SKY | typeof BLK;
@@ -90,16 +93,26 @@ export function computeColumnLight(blocks: Uint16Array, light: Uint8Array): void
     },
   };
 
-  // Straight-down sunlight.
+  // Straight-down sunlight. Floating islands (high above the ground) don't cast full
+  // shadows: sunlight resumes beneath them, so the land below isn't plunged into darkness.
   for (let z = 0; z < CS; z++)
     for (let x = 0; x < CS; x++) {
       let level = 15;
-      for (let y = WORLD_H - 1; y >= 0 && level > 0; y--) {
+      for (let y = WORLD_H - 1; y >= 0; y--) {
         const i = colIndex(x, y, z);
         const att = LIGHT_ATTEN[blocks[i]];
-        if (att >= 15) break;
+        if (att >= 15) {
+          if (y >= SKY_PASS_Y) {
+            level = 15;
+            continue;
+          }
+          break;
+        }
         if (y < WORLD_H - 1) level = passed(level, att, SKY, DOWN);
-        if (level <= 0) break;
+        if (level <= 0) {
+          if (y >= SKY_PASS_Y) continue;
+          break;
+        }
         light[i] = level << 4;
       }
     }

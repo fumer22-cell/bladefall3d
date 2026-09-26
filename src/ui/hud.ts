@@ -141,7 +141,7 @@ export class Hud {
     const panel = el('div', 'panel', this.overlay);
     panel.innerHTML = `
       <h1>BLADEFALL</h1>
-      <p class="sub">Phase 4: items, crafting and saving</p>
+      <p class="sub">Paused</p>
       <table>${CONTROLS.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
       <div class="go">Click to play</div>
       <div class="pause-actions"><button type="button" class="quit">Save and quit to menu</button></div>`;

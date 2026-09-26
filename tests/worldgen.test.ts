@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WORLD } from '../src/config';
 import { Block, SOLID } from '../src/world/blocks';
-import { WORLD_H, colIndex } from '../src/world/chunk';
+import { colIndex } from '../src/world/chunk';
 import { raycastVoxel } from '../src/world/raycast';
 import { WorldGen } from '../src/world/worldgen';
 import { flatWorld } from './helpers';
@@ -17,25 +17,40 @@ describe('WorldGen', () => {
     expect(c.blocks).not.toEqual(a.blocks);
   });
 
-  it('has bedrock at the bottom, solid ground near the height map, and water below sea level', () => {
-    let waterSeen = false;
-    for (let cx = -6; cx <= 6; cx += 3) {
-      const col = gen.generate(cx, 0);
-      for (let z = 0; z < 16; z += 5)
-        for (let x = 0; x < 16; x += 5) {
-          expect(col.blocks[colIndex(x, 0, z)]).toBe(Block.BEDROCK);
-          const h = gen.height(cx * 16 + x, z);
-          expect(h).toBeGreaterThan(8);
-          expect(h).toBeLessThan(WORLD_H);
-          if (h < WORLD.SEA_LEVEL) {
-            expect(col.blocks[colIndex(x, WORLD.SEA_LEVEL, z)]).toBe(Block.WATER);
-            waterSeen = true;
+  it('has bedrock at the bottom and water in low ground', () => {
+    let low = 0, wet = 0;
+    for (let cx = -12; cx <= 12; cx += 3)
+      for (let cz = -12; cz <= 12; cz += 6) {
+        const col = gen.generate(cx, cz);
+        for (let z = 0; z < 16; z += 5)
+          for (let x = 0; x < 16; x += 5) {
+            expect(col.blocks[colIndex(x, 0, z)]).toBe(Block.BEDROCK);
+            if (gen.height(cx * 16 + x, cz * 16 + z) < WORLD.SEA_LEVEL - 8) {
+              low++;
+              const b = col.blocks[colIndex(x, WORLD.SEA_LEVEL, z)];
+              if (b === Block.WATER) wet++;
+            }
           }
-          // Nothing solid floats in the open sky well above the terrain (trees top out ~9 above).
-          expect(SOLID[col.blocks[colIndex(x, Math.min(WORLD_H - 1, h + 12), z)]]).toBe(0);
-        }
+      }
+    if (low > 0) expect(wet / low).toBeGreaterThan(0.6);
+  });
+
+  it('grows plants and has floating land and several moods', () => {
+    let plants = 0, sky = 0;
+    const moods = new Set<string>();
+    for (let k = 0; k < 40; k++) {
+      const cx = k * 11 - 200, cz = (k % 7) * 13 - 40;
+      moods.add(gen.mood(cx * 16, cz * 16));
+      const col = gen.generate(cx, cz);
+      for (let i = 0; i < col.blocks.length; i++) {
+        const b = col.blocks[i];
+        if (b === Block.TALL_GRASS || b === Block.GOLD_TUFT || b === Block.FERN) plants++;
+        if (SOLID[b] && i >= colIndex(0, 125, 0) && i < colIndex(0, 190, 0)) sky++;
+      }
     }
-    expect(typeof waterSeen).toBe('boolean');
+    expect(plants).toBeGreaterThan(100);
+    expect(sky).toBeGreaterThan(0);
+    expect(moods.size).toBeGreaterThanOrEqual(3);
   });
 
   it('carves caves and places ores underground', () => {

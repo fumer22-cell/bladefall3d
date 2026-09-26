@@ -173,21 +173,54 @@ export const WORLD = {
   MAX_MESH_IN_FLIGHT: 8,
   /** Generated columns integrated (light-stitched) per frame. */
   COLUMNS_PER_FRAME: 2,
-  SKY_COLOR: 0x9cc7e8,
+  SKY_COLOR: 0x7a5e7c,
   /** Fog color when you're somewhere dark (caves). */
   CAVE_FOG_COLOR: 0x07080b,
-  FOG_DENSITY: 0.0085,
-  /** Block-edge grid line strength in the voxel shader (0 = off). */
-  GRID_LINE_STRENGTH: 0.12,
-  /** Per-block brightness jitter so flat colors read as separate blocks. */
-  BLOCK_COLOR_JITTER: 0.05,
+  FOG_DENSITY: 0.0075,
   /** Directional face shading: [top, bottom, ±x sides, ±z sides]. */
-  FACE_SHADE: [1.0, 0.55, 0.86, 0.76],
+  FACE_SHADE: [1.0, 0.6, 0.9, 0.8],
+} as const;
+
+/** Pixel-art presentation: low-res render + palette snapping with ordered dithering. */
+export const PIXEL = {
+  /** Internal render height in pixels (rounded to an integer upscale of the window). */
+  TARGET_HEIGHT: 300,
+  /** 0 = true colors, 1 = fully snapped to the palette. */
+  PALETTE_STRENGTH: 1,
+  /** Ordered-dither amplitude before palette snapping. */
+  DITHER: 0.055,
+  /** Ink outline darkness at depth edges (0 = off). */
+  OUTLINE: 0.75,
+  /** Relative depth jump that counts as an edge. */
+  OUTLINE_THRESHOLD: 0.07,
+  VIGNETTE: 0.4,
+  /** Cool shadows / warm highlights color grade strength. */
+  GRADE: 1,
+} as const;
+
+/** Dusk sky: a low sun, a big pixel moon, stars and banded clouds. */
+export const SKY = {
+  SUN_ELEVATION: 6,
+  SUN_AZIMUTH: 215,
+  MOON_ELEVATION: 38,
+  MOON_AZIMUTH: 40,
+  MOON_SIZE: 0.075,
+  CLOUD_SPEED: 0.004,
+  /** Fog/haze color at the horizon (hex). */
+  HAZE: 0x7a5e7c,
+} as const;
+
+/** Ambient life: fireflies drifting around the player. */
+export const AMBIENT = {
+  FIREFLIES: 90,
+  RADIUS: 22,
+  /** Fireflies glow brighter where it's dark. */
+  MIN_ALPHA: 0.35,
 } as const;
 
 export const LIGHT = {
   /** Brightness at light level 0 (so pitch-black caves are still barely readable). */
-  MIN_BRIGHTNESS: 0.035,
+  MIN_BRIGHTNESS: 0.06,
   /** Each light level below 15 multiplies brightness by this. */
   FALLOFF: 0.8,
   /** Warm tint for torch/block light. */
@@ -197,6 +230,8 @@ export const LIGHT = {
   AO: [1.0, 0.78, 0.62, 0.48],
   /** Day brightness multiplier for sky light (Phase 6 animates this). */
   DAYLIGHT: 1.0,
+  /** Color of sky light: a warm, golden-hour cast. */
+  SKY_TINT: [1.0, 0.93, 0.82],
 } as const;
 
 export const BUILD = {

@@ -4,6 +4,7 @@ import { CS, colKey, decodeChunkId } from '../world/chunk';
 import type { WorkerPool } from '../world/workerPool';
 import type { World } from '../world/world';
 import { greedyMesh, type ChunkMeshes, type MeshData } from './mesher';
+import { buildAtlas } from './textures';
 import { createVoxelMaterial } from './voxelMaterial';
 
 interface ChunkMesh {
@@ -17,8 +18,9 @@ interface ChunkMesh {
  * of unloaded columns.
  */
 export class ChunkRenderer {
-  readonly opaqueMat: ShaderMaterial = createVoxelMaterial(false);
-  readonly waterMat: ShaderMaterial = createVoxelMaterial(true);
+  private readonly atlas = buildAtlas();
+  readonly opaqueMat: ShaderMaterial = createVoxelMaterial(this.atlas.texture, this.atlas.average, false);
+  readonly waterMat: ShaderMaterial = createVoxelMaterial(this.atlas.texture, this.atlas.average, true);
   private readonly meshes = new Map<number, ChunkMesh>();
   private readonly inFlight = new Set<number>();
 
@@ -109,6 +111,8 @@ export class ChunkRenderer {
     geo.setAttribute('aColor', new BufferAttribute(data.colors, 3));
     geo.setAttribute('aLight', new BufferAttribute(data.light, 2));
     geo.setAttribute('aAO', new BufferAttribute(data.ao, 1));
+    geo.setAttribute('aUV', new BufferAttribute(data.uv, 2));
+    geo.setAttribute('aTile', new BufferAttribute(data.tile, 1));
     geo.setIndex(new BufferAttribute(data.indices, 1));
     geo.computeBoundingSphere();
     const mesh = new Mesh(geo, mat);

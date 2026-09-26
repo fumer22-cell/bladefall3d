@@ -30,5 +30,12 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   Workbench → Forge (smelting, copper gear) → Anvil (iron gear); copper and iron versions of all five weapons;
   main menu with save slots stored in IndexedDB, autosave and save-on-pause.
 
+- **Visual overhaul:** cozy 80s dark-fantasy pixel art. All block art is painted in code from one palette
+  (`src/render/palette.ts`, `src/render/textures.ts`); the world renders at ~300 px tall and is upscaled with ink
+  outlines, a cool-shadow/warm-highlight grade and palette snapping with ordered dithering
+  (`src/render/pixelPipeline.ts`); dusk sky with moon, stars and clouds; fireflies. Dreamlike terrain: 3D density
+  with overhangs and arches, stone spires, floating islands, four moods (glade, golden wood, mist vale, heather moor)
+  with their own trees and plants, glowing caves, ruined towers, arches and standing stones.
+
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.
