@@ -9,7 +9,7 @@ export type WorkerRequest =
 let gen: WorldGen | null = null;
 
 function buffers(m: MeshData): ArrayBuffer[] {
-  return [m.positions, m.normals, m.colors, m.light, m.ao, m.uv, m.tile, m.indices].map((a) => a.buffer as ArrayBuffer);
+  return [m.positions, m.normals, m.colors, m.light, m.ao, m.uv, m.tile, m.tileSide, m.indices].map((a) => a.buffer as ArrayBuffer);
 }
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {

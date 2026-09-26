@@ -12,34 +12,34 @@ const quads = (w: World, cx = 0, cy = 0, cz = 0) => mesh(w, cx, cy, cz).opaque.i
 describe('greedyMesh', () => {
   it('meshes a single block as 6 quads', () => {
     const w = new World();
-    w.setBlock(5, 5, 5, Block.STONE);
+    w.setBlock(5, 5, 5, Block.PLANKS);
     expect(quads(w)).toBe(6);
   });
 
   it('merges a row of identical blocks into 6 quads', () => {
     const w = new World();
-    w.fill(2, 5, 5, 9, 5, 5, Block.STONE);
+    w.fill(2, 5, 5, 9, 5, 5, Block.PLANKS);
     expect(quads(w)).toBe(6);
   });
 
   it('merges a full slab into 6 quads', () => {
     const w = new World();
-    w.fill(0, 5, 0, 15, 5, 15, Block.STONE);
+    w.fill(0, 5, 0, 15, 5, 15, Block.PLANKS);
     expect(quads(w)).toBe(6);
   });
 
   it('does not merge different block types', () => {
     const w = new World();
-    w.setBlock(5, 5, 5, Block.STONE);
-    w.setBlock(6, 5, 5, Block.DIRT);
+    w.setBlock(5, 5, 5, Block.PLANKS);
+    w.setBlock(6, 5, 5, Block.BRICK);
     // 4 side faces each + 1 end each, not merged: 10.
     expect(quads(w)).toBe(10);
   });
 
   it('assigns faces across a chunk border to exactly one chunk each', () => {
     const w = new World();
-    w.setBlock(15, 5, 5, Block.STONE); // chunk 0
-    w.setBlock(16, 5, 5, Block.STONE); // chunk 1
+    w.setBlock(15, 5, 5, Block.PLANKS); // chunk 0
+    w.setBlock(16, 5, 5, Block.PLANKS); // chunk 1
     // Shared face is hidden; each chunk emits 5 faces.
     expect(quads(w, 0)).toBe(5);
     expect(quads(w, 1)).toBe(5);
@@ -47,7 +47,7 @@ describe('greedyMesh', () => {
 
   it('emits outward-facing normals with correct winding', () => {
     const w = new World();
-    w.setBlock(5, 5, 5, Block.STONE);
+    w.setBlock(5, 5, 5, Block.PLANKS);
     const m = mesh(w).opaque;
     for (let t = 0; t < m.indices.length; t += 3) {
       const [a, b, c] = [m.indices[t], m.indices[t + 1], m.indices[t + 2]].map((i) => [
@@ -66,7 +66,7 @@ describe('greedyMesh', () => {
 describe('greedyMesh lighting, AO and special shapes', () => {
   it('bakes the light of the cell in front of each face', () => {
     const w = new World();
-    w.setBlock(5, 5, 5, Block.STONE);
+    w.setBlock(5, 5, 5, Block.PLANKS);
     w.lightAll();
     const m = mesh(w).opaque;
     // Open sky around: full sunlight on top and sides; the cell underneath is shaded by the block (14).
@@ -78,8 +78,8 @@ describe('greedyMesh lighting, AO and special shapes', () => {
 
   it('adds ambient occlusion where a floor meets a wall', () => {
     const w = new World();
-    w.fill(0, 5, 0, 15, 5, 15, Block.STONE);
-    w.fill(8, 6, 0, 8, 8, 15, Block.STONE);
+    w.fill(0, 5, 0, 15, 5, 15, Block.PLANKS);
+    w.fill(8, 6, 0, 8, 8, 15, Block.PLANKS);
     const m = mesh(w).opaque;
     expect(Math.max(...m.ao)).toBeGreaterThan(0);
   });
@@ -96,5 +96,47 @@ describe('greedyMesh lighting, AO and special shapes', () => {
     const w = new World();
     w.setBlock(5, 5, 5, Block.TORCH);
     expect(mesh(w).opaque.indices.length / 6).toBe(12);
+  });
+});
+
+describe('surface nets (smooth terrain)', () => {
+  const tris = (w: World) => mesh(w).opaque;
+
+  it('wraps a single natural block in a closed, outward-facing surface', () => {
+    const w = new World();
+    w.setBlock(5, 5, 5, Block.STONE);
+    const m = tris(w);
+    expect(m.indices.length / 3).toBe(12); // 6 quads × 2 triangles
+    for (let t = 0; t < m.indices.length; t += 3) {
+      const i = m.indices[t] * 3;
+      const c = [m.positions[i] - 5.5, m.positions[i + 1] - 5.5, m.positions[i + 2] - 5.5];
+      const dot = c[0] * m.normals[i] + c[1] * m.normals[i + 1] + c[2] * m.normals[i + 2];
+      expect(dot).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps flat ground exactly at the block top (matches collision)', () => {
+    const w = new World();
+    w.fill(0, 0, 0, 15, 4, 15, Block.STONE);
+    const m = tris(w);
+    let top = 0;
+    for (let v = 0; v < m.positions.length / 3; v++) {
+      if (m.normals[v * 3 + 1] > 0.99 && m.positions[v * 3] > 2 && m.positions[v * 3] < 13) {
+        expect(m.positions[v * 3 + 1]).toBeCloseTo(5, 5);
+        top++;
+      }
+    }
+    expect(top).toBeGreaterThan(0);
+  });
+
+  it('draws cube faces of built blocks where they touch natural terrain', () => {
+    const w = new World();
+    w.fill(0, 0, 0, 15, 4, 15, Block.STONE);
+    w.setBlock(8, 5, 8, Block.PLANKS);
+    const m = tris(w);
+    // The plank's bottom face (toward the stone) is emitted; its other 5 faces too.
+    let plankFaces = 0;
+    for (let v = 0; v < m.tile.length; v += 4) if (m.tileSide[v] === m.tile[v] && m.positions[v * 3 + 1] >= 5 && m.positions[v * 3 + 1] <= 6) plankFaces++;
+    expect(plankFaces).toBeGreaterThanOrEqual(5);
   });
 });

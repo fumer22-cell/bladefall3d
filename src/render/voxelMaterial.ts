@@ -35,6 +35,9 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
       attribute float aAO;
       attribute vec2 aUV;
       attribute float aTile;
+      attribute float aTileSide;
+      varying float vTileSide;
+      varying vec3 vWorld;
       varying vec3 vColor;
       varying vec3 vNormal;
       varying vec2 vLight;
@@ -50,6 +53,8 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
         vAO = aAO;
         vUV = aUV;
         vTile = aTile;
+        vTileSide = aTileSide;
+        vWorld = wp.xyz;
         vec4 mv = viewMatrix * wp;
         vDist = length(mv.xyz);
         gl_Position = projectionMatrix * mv;
@@ -74,10 +79,23 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
       varying float vAO;
       varying vec2 vUV;
       varying float vTile;
+      varying float vTileSide;
+      varying vec3 vWorld;
       varying float vDist;
 
       const float TILES = ${ATLAS_TILES.toFixed(1)};
       const float TPX = ${TILE_PX.toFixed(1)};
+
+      vec4 sampleTile(float tile, vec2 uv) {
+        float t = floor(tile + 0.5);
+        vec2 tileXY = vec2(mod(t, TILES), floor(t / TILES));
+        vec2 texel = floor(fract(uv) * TPX);
+        vec4 s = texture2D(atlas, (tileXY * TPX + texel + 0.5) / (TILES * TPX));
+        // When a texel covers less than a screen pixel, fade to the tile's average color.
+        vec4 avg = texture2D(atlasAvg, (tileXY + 0.5) / TILES);
+        float footprint = max(length(dFdx(vWorld)), length(dFdy(vWorld))) * TPX;
+        return vec4(mix(s.rgb, avg.rgb, clamp(footprint - 0.8, 0.0, 1.0) * avg.a), s.a);
+      }
 
       float bright(float level) {
         return level <= 0.0 ? 0.0 : pow(falloff, 15.0 - level * 15.0);
@@ -85,20 +103,25 @@ export function createVoxelMaterial(atlas: Texture, atlasAvg: Texture, water = f
 
       void main() {
         vec3 base = vColor;
-        if (vTile >= 0.0) {
-          float t = floor(vTile + 0.5);
-          vec2 tileXY = vec2(mod(t, TILES), floor(t / TILES));
-          vec2 texel = floor(fract(vUV) * TPX);
-          vec4 s = texture2D(atlas, (tileXY * TPX + texel + 0.5) / (TILES * TPX));
-          if (s.a < 0.5) discard;
-          vec4 avg = texture2D(atlasAvg, (tileXY + 0.5) / TILES);
-          // When a texel covers less than a screen pixel, blend to the tile's average color.
-          float footprint = max(length(dFdx(vUV)), length(dFdy(vUV))) * TPX;
-          base = mix(s.rgb, avg.rgb, clamp(footprint - 0.8, 0.0, 1.0) * avg.a);
+        vec3 n = normalize(vNormal);
+        if (vTileSide < -1.5) {
+          // Sprites (plants) use their own UVs.
+          vec4 sp = sampleTile(vTile, vUV);
+          if (sp.a < 0.5) discard;
+          base = sp.rgb;
+        } else if (vTile >= 0.0) {
+          // World-projected textures, blended by facet direction (triplanar).
+          vec3 w = pow(abs(n), vec3(4.0));
+          w /= (w.x + w.y + w.z);
+          vec3 c = vec3(0.0);
+          if (w.x > 0.01) c += w.x * sampleTile(vTileSide, vec2(n.x > 0.0 ? -vWorld.z : vWorld.z, vWorld.y)).rgb;
+          if (w.z > 0.01) c += w.z * sampleTile(vTileSide, vec2(n.z > 0.0 ? vWorld.x : -vWorld.x, vWorld.y)).rgb;
+          if (w.y > 0.01) c += w.y * sampleTile(vTile, vec2(vWorld.x, n.y > 0.0 ? -vWorld.z : vWorld.z)).rgb;
+          base = c;
         }
 
-        vec3 n = vNormal;
-        float shade = n.y > 0.5 ? faceShade[0] : (n.y < -0.5 ? faceShade[1] : (abs(n.x) > 0.5 ? faceShade[2] : faceShade[3]));
+        float side = mix(faceShade[3], faceShade[2], n.x * n.x / max(n.x * n.x + n.z * n.z, 1e-4));
+        float shade = n.y >= 0.0 ? mix(side, faceShade[0], n.y) : mix(side, faceShade[1], -n.y);
         float sky = bright(vLight.x) * daylight;
         float blk = bright(vLight.y);
         vec3 light = max(skyTint * sky, torchTint * blk);

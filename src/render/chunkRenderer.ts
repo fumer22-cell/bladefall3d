@@ -113,6 +113,7 @@ export class ChunkRenderer {
     geo.setAttribute('aAO', new BufferAttribute(data.ao, 1));
     geo.setAttribute('aUV', new BufferAttribute(data.uv, 2));
     geo.setAttribute('aTile', new BufferAttribute(data.tile, 1));
+    geo.setAttribute('aTileSide', new BufferAttribute(data.tileSide, 1));
     geo.setIndex(new BufferAttribute(data.indices, 1));
     geo.computeBoundingSphere();
     const mesh = new Mesh(geo, mat);

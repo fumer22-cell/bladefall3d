@@ -1,5 +1,5 @@
 import { WORLD } from '../config';
-import { Block, SOLID } from './blocks';
+import { Block, SMOOTH, SOLID } from './blocks';
 import { COL_VOLUME, CS, WORLD_H, colIndex } from './chunk';
 import { computeColumnLight } from './lighting';
 import { mulberry32, Simplex } from './noise';
@@ -15,6 +15,8 @@ export interface ColumnData {
 export type Mood = 'glade' | 'golden' | 'mist' | 'moor';
 
 const SEA = WORLD.SEA_LEVEL;
+/** Plateau cell size in blocks. */
+const PLATEAU_CELL = 44;
 /** Density/caves are sampled every STEP blocks and trilinearly interpolated. */
 const STEP = 4;
 const GX = CS / STEP + 1;
@@ -85,47 +87,84 @@ export class WorldGen {
     return wet > 0.15 ? 'mist' : wet < -0.2 ? 'golden' : 'glade';
   }
 
-  /** Base terrain height before 3D shaping (roughly where the ground is). */
+  /**
+   * Base terrain height: a patchwork of plateaus. The world is split into jittered cells; each
+   * cell gets its own tier height, and cells are blended with a soft-min whose sharpness varies by
+   * region, so some areas are sheer mesas and canyons and others are rolling stepped terraces.
+   */
   height(x: number, z: number): number {
     const n = this.n;
-    const c = n.cont.fbm2(x / 700, z / 700, 3);
-    const h = n.hills.fbm2(x / 150, z / 150, 4);
-    const mMask = smoothstep(0.1, 0.5, n.mount.fbm2(x / 480, z / 480, 2));
-    const r = 1 - Math.abs(n.ridge.fbm2(x / 240, z / 240, 3));
-    let height = 68 + c * 16 + h * 10 + mMask * (r * r * 50 + h * 10);
-    // Gentle terraces in places: dreamy stepped meadows.
-    const terr = smoothstep(0.2, 0.5, n.warm.fbm2(x / 300 + 40, z / 300, 2));
+    const S = PLATEAU_CELL;
+    const gx = Math.floor(x / S), gz = Math.floor(z / S);
+    const sharp = 0.1 + 1.3 * smoothstep(-0.25, 0.35, n.cliff.fbm2(x / 360, z / 360, 2));
+    let dmin = Infinity;
+    const ds: number[] = [], hs: number[] = [];
+    for (let j = -1; j <= 1; j++)
+      for (let i = -1; i <= 1; i++) {
+        const cx = gx + i, cz = gz + j;
+        const h1 = hash2(cx, cz, this.seed) / 4294967296;
+        const h2 = hash2(cz, cx, this.seed + 7) / 4294967296;
+        const px = (cx + 0.15 + 0.7 * h1) * S, pz = (cz + 0.15 + 0.7 * h2) * S;
+        const d = Math.hypot(x - px, z - pz);
+        ds.push(d);
+        hs.push(this.tierHeight(cx, cz, px, pz));
+        if (d < dmin) dmin = d;
+      }
+    let wsum = 0, hsum = 0;
+    for (let k = 0; k < 9; k++) {
+      const w = Math.exp(-sharp * (ds[k] - dmin));
+      wsum += w;
+      hsum += w * hs[k];
+    }
+    let height = hsum / wsum + n.hills.fbm2(x / 90, z / 90, 3) * (2 + 4 / (1 + sharp * 4));
+    // Gentle regions become stacked terraces rather than smooth hills.
+    const terr = 1 - smoothstep(0.3, 0.9, sharp);
     if (terr > 0) {
-      const step = 5;
+      const step = 4;
       const t = height / step;
-      const stepped = (Math.floor(t) + smoothstep(0.7, 1, t - Math.floor(t))) * step;
+      const stepped = (Math.floor(t) + smoothstep(0.65, 1, t - Math.floor(t))) * step;
       height += (stepped - height) * terr;
     }
     return Math.floor(Math.max(8, Math.min(WORLD_H - 40, height)));
   }
 
-  /** Spire strength (0..1) at x, z. */
-  private spire(x: number, z: number): number {
-    const s = 1 - Math.abs(this.n.spire.noise2(x / 34, z / 34));
-    const region = smoothstep(-0.1, 0.35, this.n.cliff.fbm2(x / 400, z / 400, 2));
-    return smoothstep(0.955, 0.99, s) * region;
+  /** Height of one plateau cell. */
+  private tierHeight(cx: number, cz: number, px: number, pz: number): number {
+    const r = hash2(cx * 3 + 1, cz * 5 + 2, this.seed + 3) / 4294967296;
+    const r2 = hash2(cx * 7 + 4, cz * 11 + 9, this.seed + 5) / 4294967296;
+    const region = this.n.cont.fbm2(px / 650, pz / 650, 2); // broad highlands vs lowlands
+    if (r < 0.1 + Math.max(0, -region) * 0.25) return SEA - 5 - Math.floor(r2 * 6); // lake basins
+    const tier = Math.floor(r * 6);
+    let h = 60 + (region + 1) * 16 + tier * 13;
+    if (r2 < 0.08) h += 38 + r2 * 300; // towering mesas
+    return h;
   }
 
-  /** Density at a grid point: > 0 is solid. */
-  private density(x: number, y: number, z: number, H: number, cliff: number, spire: number, spireTop: number, island: number, islandY: number): number {
+  /** Spire strength (0..1) at x, z. */
+  private spire(x: number, z: number): number {
+    const s = 1 - Math.abs(this.n.spire.noise2(x / 70, z / 70));
+    const region = smoothstep(0.0, 0.4, this.n.cliff.fbm2(x / 400, z / 400, 2));
+    return smoothstep(0.93, 0.975, s) * region;
+  }
+
+  /** 3D shaping noise at a point (added to the height-based density): overhangs, alcoves, lumps. */
+  private shapeNoise(x: number, y: number, z: number, cliff: number): number {
     const n = this.n;
-    let d = (H - y) / 10;
-    // Warped 3D noise: overhangs, arches and dreamy lumps, stronger in cliffy regions.
-    d += n.warp.noise3(x / 46, y / 30, z / 46) * (0.25 + cliff) + n.detail.noise3(x / 17, y / 13, z / 17) * 0.12;
+    return n.warp.noise3(x / 38, y / 26, z / 38) * (0.3 + cliff * 0.7) + n.detail.noise3(x / 15, y / 11, z / 15) * 0.14;
+  }
+
+  /** Extra solid mass combined with max(): slender spires and floating islands. */
+  private extraMass(x: number, y: number, z: number, H: number, spire: number, spireTop: number, island: number, islandY: number): number {
+    let d = -1;
     if (spire > 0.02 && y > H - 4 && y < spireTop) {
       const t = (y - H) / (spireTop - H);
-      d = Math.max(d, spire * 1.6 * (1 - t * t) - 0.35);
+      d = spire * 1.6 * (1 - t * t) - 0.35;
     }
     if (island > 0.01 && y >= ISLAND_MIN && y <= ISLAND_MAX) {
       const dy = y - islandY;
       // Flat-ish tops, long tapering undersides.
       const vert = dy > 0 ? 1 - dy / (4 + 5 * island) : 1 + dy / (5 + 22 * island * island);
-      d = Math.max(d, island * vert + n.islandD.noise3(x / 20, y / 14, z / 20) * 0.3 - 0.18);
+      d = Math.max(d, island * vert + this.n.islandD.noise3(x / 20, y / 14, z / 20) * 0.3 - 0.18);
     }
     return d;
   }
@@ -137,8 +176,13 @@ export class WorldGen {
     const n = this.n;
     const rng = mulberry32(hash2(cx, cz, this.seed));
 
-    // --- Coarse density + cave fields ---
+    // --- Exact per-column heights (keeps cliff walls crisp) ---
+    const colH = new Float32Array(CS * CS);
+    for (let z = 0; z < CS; z++) for (let x = 0; x < CS; x++) colH[x + z * CS] = this.height(x0 + x, z0 + z);
+
+    // --- Coarse 3D fields: shaping noise, extra mass, caves ---
     const dens = new Float32Array(GX * GX * GY);
+    const mass = new Float32Array(GX * GX * GY);
     const caves = new Float32Array(GX * GX * GY * 3);
     for (let gz = 0; gz < GX; gz++)
       for (let gx = 0; gx < GX; gx++) {
@@ -147,13 +191,14 @@ export class WorldGen {
         const kit = MOODS[this.mood(x, z)];
         const cliff = kit.cliff * (0.5 + 0.5 * smoothstep(-0.3, 0.4, n.cliff.fbm2(x / 180, z / 180, 2)));
         const spire = this.spire(x, z);
-        const spireTop = H + 26 + 50 * (0.5 + 0.5 * n.spireH.noise2(x / 60, z / 60));
+        const spireTop = H + 18 + 34 * (0.5 + 0.5 * n.spireH.noise2(x / 60, z / 60));
         const island = smoothstep(0.42, 0.78, n.island.fbm2(x / 150, z / 150, 3));
         const islandY = 148 + 20 * n.islandY.noise2(x / 230, z / 230);
         for (let gy = 0; gy < GY; gy++) {
           const y = gy * STEP;
           const o = (gy * GX + gz) * GX + gx;
-          dens[o] = this.density(x, y, z, H, cliff, spire, spireTop, island, islandY);
+          dens[o] = this.shapeNoise(x, y, z, cliff);
+          mass[o] = this.extraMass(x, y, z, H, spire, spireTop, island, islandY);
           caves[o * 3] = n.caveA.noise3(x / 56, y / 32, z / 56);
           caves[o * 3 + 1] = n.caveB.noise3(x / 72, y / 44, z / 72);
           caves[o * 3 + 2] = n.caveC.noise3(x / 72, y / 44, z / 72);
@@ -181,7 +226,8 @@ export class WorldGen {
             blocks[colIndex(x, y, z)] = Block.BEDROCK;
             continue;
           }
-          if (sample(dens, 1, 0, x, y, z) > 0) blocks[colIndex(x, y, z)] = y < 24 ? Block.DEEPSTONE : Block.STONE;
+          const d = Math.max((colH[x + z * CS] - y) / 9 + sample(dens, 1, 0, x, y, z), sample(mass, 1, 0, x, y, z));
+          if (d > 0) blocks[colIndex(x, y, z)] = y < 24 ? Block.DEEPSTONE : Block.STONE;
         }
 
     // --- Water: open air from sea level down to the first solid block ---
@@ -202,7 +248,11 @@ export class WorldGen {
         const mood = this.mood(wx, wz);
         moods[x + z * CS] = mood;
         const kit = MOODS[mood];
-        const rocky = this.spire(wx, wz) > 0.25;
+        // Steep ground (plateau walls) is bare rock; gentle ground gets soil and grass.
+        const hx = (dx: number) => (x + dx >= 0 && x + dx < CS ? colH[x + dx + z * CS] : this.height(wx + dx, wz));
+        const hz = (dz: number) => (z + dz >= 0 && z + dz < CS ? colH[x + (z + dz) * CS] : this.height(wx, wz + dz));
+        const slope = Math.max(Math.abs(hx(2) - hx(-2)), Math.abs(hz(2) - hz(-2)));
+        const rocky = this.spire(wx, wz) > 0.25 || slope > 5;
         let depth = -1; // blocks since the last air going down (−1 = in air)
         for (let y = WORLD_H - 2; y > 0; y--) {
           const i = colIndex(x, y, z);
@@ -314,14 +364,16 @@ export class WorldGen {
       }
   }
 
-  /** Vines dangle from the undersides of floating islands and overhangs. */
+  /** Vines dangle from the undersides of floating islands, overhangs, ledges and cave ceilings. */
   private hangingVines(blocks: Uint16Array, rng: () => number): void {
     for (let z = 0; z < CS; z++)
       for (let x = 0; x < CS; x++)
-        for (let y = ISLAND_MIN - 20; y < WORLD_H - 2; y++) {
+        for (let y = SEA + 3; y < WORLD_H - 2; y++) {
           const b = blocks[colIndex(x, y, z)];
-          if ((b !== Block.ROOTS && b !== Block.TEAL_LEAVES) || blocks[colIndex(x, y - 1, z)] !== 0 || rng() > 0.18) continue;
-          const len = 2 + Math.floor(rng() * 6);
+          if (!SMOOTH[b] || blocks[colIndex(x, y - 1, z)] !== 0) continue;
+          const island = b === Block.ROOTS || b === Block.TEAL_LEAVES;
+          if (rng() > (island ? 0.18 : 0.07)) continue;
+          const len = 2 + Math.floor(rng() * (island ? 6 : 8));
           for (let k = 1; k <= len && y - k > 0 && blocks[colIndex(x, y - k, z)] === 0; k++) blocks[colIndex(x, y - k, z)] = Block.VINES;
         }
   }

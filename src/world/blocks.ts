@@ -44,7 +44,7 @@ const PLANT: Opts = { solid: false, shape: 'plant', lightAtten: 1, hardness: 0 }
 
 export const Block = {
   AIR: define('air', 0x000000, null, AIRLIKE),
-  STONE: define('stone', 0x5e606f, 'stone', { hardness: 0.9, tier: 1 }),
+  STONE: define('stone', 0x5e606f, ['stone', 'cliff', 'stone'], { hardness: 0.9, tier: 1 }),
   DIRT: define('dirt', 0x6b482c, 'dirt', { hardness: 0.35 }),
   GRASS: define('grass', 0x415e28, ['grass_top', 'grass_side', 'dirt'], { hardness: 0.4 }),
   GRASS_ALT: define('grass_alt', 0x2e461f, ['grass_top', 'grass_side', 'dirt'], { hardness: 0.4 }),
@@ -62,7 +62,7 @@ export const Block = {
   WATER: define('water', 0x1c3f61, 'water', { solid: false, shape: 'water', lightAtten: 2, hardness: Infinity }),
   TORCH: define('torch', 0xfdbe5d, null, { solid: false, shape: 'torch', lightAtten: 1, emission: 14, hardness: 0.05 }),
   BEDROCK: define('bedrock', 0x15121d, 'bedrock', { hardness: Infinity }),
-  DEEPSTONE: define('deepstone', 0x303145, 'deepstone', { hardness: 1.3, tier: 1 }),
+  DEEPSTONE: define('deepstone', 0x303145, ['deepstone', 'deep_cliff', 'deepstone'], { hardness: 1.3, tier: 1 }),
   COAL_ORE: define('coal_ore', 0x1f1a29, 'coal_ore', { hardness: 1.1, tier: 1 }),
   COPPER_ORE: define('copper_ore', 0xb0602f, 'copper_ore', { hardness: 1.3, tier: 1 }),
   IRON_ORE: define('iron_ore', 0xbfae9d, 'iron_ore', { hardness: 1.6, tier: 2 }),
@@ -81,7 +81,7 @@ export const Block = {
   TEAL_LEAVES: define('mist_leaves', 0x38776c, 'teal_leaves', { lightAtten: 2, hardness: 0.12 }),
   ROSE_LEAVES: define('rose_leaves', 0x9c3a41, 'rose_leaves', { lightAtten: 2, hardness: 0.12 }),
   PALE_LOG: define('pale_log', 0xc9bfa7, ['pale_log_top', 'pale_log_side', 'pale_log_top'], { hardness: 0.7 }),
-  MOSS_STONE: define('moss_stone', 0x415e28, ['moss_stone', 'moss_stone', 'stone'], { hardness: 1.0, tier: 1 }),
+  MOSS_STONE: define('moss_stone', 0x415e28, ['moss_stone', 'cliff_moss', 'stone'], { hardness: 1.0, tier: 1 }),
   CRYSTAL: define('crystal', 0x8f5bcb, 'crystal', { hardness: 1.2, tier: 1, emission: 12 }),
   ROOTS: define('rooted_dirt', 0x523621, 'roots', { hardness: 0.4 }),
   LANTERN: define('lantern', 0xdc7629, 'lantern', { hardness: 0.3, emission: 14, lightAtten: 15 }),
@@ -106,6 +106,17 @@ export const FRICTION = new Float32Array(defs.map((d) => d.friction));
 export const LIGHT_ATTEN = new Uint8Array(defs.map((d) => d.lightAtten));
 export const EMISSION = new Uint8Array(defs.map((d) => d.emission));
 export const SHAPE: readonly BlockShape[] = defs.map((d) => d.shape);
+
+/**
+ * Natural blocks are drawn as one continuous faceted surface (surface nets) instead of cubes:
+ * rock, soil, sand, snow, ores, trunks and canopies. Built blocks stay crisp cubes.
+ */
+const SMOOTH_NAMES = new Set([
+  'stone', 'dirt', 'grass', 'grass_alt', 'log', 'sand', 'gravel', 'leaves', 'bedrock', 'deepstone', 'coal_ore',
+  'copper_ore', 'iron_ore', 'snow', 'golden_grass', 'mist_grass', 'heather', 'golden_leaves', 'mist_leaves', 'rose_leaves',
+  'pale_log', 'moss_stone', 'rooted_dirt',
+]);
+export const SMOOTH = new Uint8Array(defs.map((d) => (SMOOTH_NAMES.has(d.name) ? 1 : 0)));
 /** Texture tile per block face: [top, side, bottom] at id*3 (−1 = untextured). */
 export const BLOCK_TILES = new Int16Array(defs.length * 3).fill(-1);
 defs.forEach((d) => {

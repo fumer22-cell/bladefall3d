@@ -176,7 +176,7 @@ export const WORLD = {
   SKY_COLOR: 0x7a5e7c,
   /** Fog color when you're somewhere dark (caves). */
   CAVE_FOG_COLOR: 0x07080b,
-  FOG_DENSITY: 0.0075,
+  FOG_DENSITY: 0.0065,
   /** Directional face shading: [top, bottom, ±x sides, ±z sides]. */
   FACE_SHADE: [1.0, 0.6, 0.9, 0.8],
 } as const;
@@ -184,13 +184,13 @@ export const WORLD = {
 /** Pixel-art presentation: low-res render + palette snapping with ordered dithering. */
 export const PIXEL = {
   /** Internal render height in pixels (rounded to an integer upscale of the window). */
-  TARGET_HEIGHT: 300,
+  TARGET_HEIGHT: 540,
   /** 0 = true colors, 1 = fully snapped to the palette. */
-  PALETTE_STRENGTH: 1,
+  PALETTE_STRENGTH: 0.85,
   /** Ordered-dither amplitude before palette snapping. */
-  DITHER: 0.055,
+  DITHER: 0.03,
   /** Ink outline darkness at depth edges (0 = off). */
-  OUTLINE: 0.75,
+  OUTLINE: 0.55,
   /** Relative depth jump that counts as an edge. */
   OUTLINE_THRESHOLD: 0.07,
   VIGNETTE: 0.4,

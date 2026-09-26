@@ -37,5 +37,10 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   with overhangs and arches, stone spires, floating islands, four moods (glade, golden wood, mist vale, heather moor)
   with their own trees and plants, glowing caves, ruined towers, arches and standing stones.
 
+- **Smooth vertical terrain:** natural blocks render as one faceted surface (surface nets) with world-projected
+  (triplanar) textures, while built blocks stay cubes and mining/collision stay per block. The land is a patchwork
+  of plateaus of very different heights (sheer mesas and canyons in some regions, stepped terraces in others) with
+  columnar cliff rock, alcoves, overhangs and vines.
+
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

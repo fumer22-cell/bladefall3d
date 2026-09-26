@@ -9,7 +9,8 @@ export const TILE_NAMES = [
   'forge_side', 'forge_top', 'anvil', 'gold_grass_top', 'gold_grass_side', 'teal_grass_top', 'teal_grass_side', 'heather_top',
   'heather_side', 'gold_leaves', 'teal_leaves', 'rose_leaves', 'pale_log_side', 'pale_log_top', 'moss_stone', 'crystal',
   'tall_grass', 'gold_tuft', 'fern', 'flower_rose', 'flower_gold', 'flower_blue', 'glowshroom', 'vines',
-  'marker_red', 'marker_yellow', 'marker_blue', 'marker_white', 'lantern', 'snow_side', 'roots',
+  'marker_red', 'marker_yellow', 'marker_blue', 'marker_white', 'lantern', 'snow_side', 'roots', 'cliff', 'cliff_moss',
+  'deep_cliff',
 ] as const;
 
 export type TileName = (typeof TILE_NAMES)[number];

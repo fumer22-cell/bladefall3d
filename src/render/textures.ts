@@ -235,7 +235,45 @@ function flower(t: Tile, petals: RampName, stem: RampName = 'moss'): void {
   }
 }
 
+/** Vertical basalt-like columns with dark seams: tall rock faces read as cliffs, not cubes. */
+function cliff(t: Tile, ramp: RampName, moss = false): void {
+  const widths: number[] = [];
+  for (let w = 0; w < N; ) {
+    const cw = 2 + Math.floor(t.rng() * 3);
+    widths.push(Math.min(cw, N - w));
+    w += cw;
+  }
+  let x0 = 0;
+  const top = shades(ramp).length - 2;
+  widths.forEach((w, k) => {
+    const base = 2 + (k % 2);
+    const breakY = Math.floor(t.rng() * N);
+    for (let x = x0; x < x0 + w; x++)
+      for (let y = 0; y < N; y++) {
+        let c = C(ramp, base);
+        if (x === x0) c = C(ramp, base - 1); // seam
+        else if (x === x0 + 1) c = C(ramp, Math.min(top, base + 1)); // lit edge
+        if (y === breakY && x !== x0) c = C(ramp, base - 1);
+        if (t.rng() < 0.06) c = C(ramp, base - 1);
+        t.set(x, y, c);
+      }
+    x0 += w;
+  });
+  if (moss)
+    for (let k = 0; k < 7; k++) {
+      let x = Math.floor(t.rng() * N);
+      const len = 3 + Math.floor(t.rng() * 9);
+      for (let y = 0; y < len; y++) {
+        t.set(x, y, C('moss', y < 2 ? 4 : 3));
+        if (t.rng() < 0.2) x = (x + 1) % N;
+      }
+    }
+}
+
 const PAINTERS: Record<TileName, (t: Tile) => void> = {
+  cliff: (t) => cliff(t, 'stone'),
+  cliff_moss: (t) => cliff(t, 'stone', true),
+  deep_cliff: (t) => cliff(t, 'deep'),
   grass_top: (t) => grassTop(t, 'moss'),
   grass_side: (t) => grassSide(t, 'moss'),
   dirt: (t) => dirt(t),

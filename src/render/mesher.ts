@@ -1,5 +1,6 @@
-import { BLOCK_TILES, COLOR, EMISSION, OPAQUE, SHAPE } from '../world/blocks';
+import { BLOCK_TILES, COLOR, EMISSION, OPAQUE, SHAPE, SMOOTH } from '../world/blocks';
 import { CS } from '../world/chunk';
+import { TILE } from '../world/tiles';
 
 export interface MeshData {
   /** Chunk-local vertex positions. */
@@ -13,8 +14,10 @@ export interface MeshData {
   ao: Float32Array;
   /** Texture coordinates in block units (the shader wraps them per tile). */
   uv: Float32Array;
-  /** Atlas tile per vertex (−1 = flat vertex color). */
+  /** Atlas tile per vertex (−1 = flat vertex color). Used for the vertical (top/bottom) projection. */
   tile: Float32Array;
+  /** Tile for the side projections (−2 = use `uv` directly, for sprites). */
+  tileSide: Float32Array;
   indices: Uint32Array;
 }
 
@@ -34,6 +37,7 @@ class Builder {
   ao: number[] = [];
   uv: number[] = [];
   tile: number[] = [];
+  tileSide: number[] = [];
   indices: number[] = [];
 
   /**
@@ -54,6 +58,7 @@ class Builder {
       this.light.push(sky / 15, blk / 15);
       this.ao.push(ao[k]);
       this.tile.push(tile);
+      this.tileSide.push(uvs ? -2 : tile);
       if (uvs) this.uv.push(uvs[k * 2], uvs[k * 2 + 1]);
       else {
         const x = v[k * 3], y = v[k * 3 + 1], z = v[k * 3 + 2];
@@ -65,6 +70,29 @@ class Builder {
     // Split along the diagonal with less AO contrast so gradients don't look creased.
     if (ao[0] + ao[2] < ao[1] + ao[3]) this.indices.push(vi + 1, vi + 2, vi + 3, vi + 1, vi + 3, vi);
     else this.indices.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
+  }
+
+  /** A flat-shaded triangle (smooth terrain). Tiles: vertical projection + side projection. */
+  tri(p: number[], sky: number, blk: number, ao: number[], tileY: number, tileSide: number): void {
+    const vi = this.positions.length / 3;
+    const ax = p[3] - p[0], ay = p[4] - p[1], az = p[5] - p[2];
+    const bx = p[6] - p[0], by = p[7] - p[1], bz = p[8] - p[2];
+    let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    for (let k = 0; k < 3; k++) {
+      this.positions.push(p[k * 3], p[k * 3 + 1], p[k * 3 + 2]);
+      this.normals.push(nx, ny, nz);
+      this.colors.push(1, 1, 1);
+      this.light.push(sky / 15, blk / 15);
+      this.ao.push(ao[k]);
+      this.uv.push(0, 0);
+      this.tile.push(tileY);
+      this.tileSide.push(tileSide);
+    }
+    this.indices.push(vi, vi + 1, vi + 2);
   }
 
   /** Axis-aligned box with every face lit uniformly (small models like torches). */
@@ -87,6 +115,7 @@ class Builder {
       ao: new Float32Array(this.ao),
       uv: new Float32Array(this.uv),
       tile: new Float32Array(this.tile),
+      tileSide: new Float32Array(this.tileSide),
       indices: new Uint32Array(this.indices),
     };
   }
@@ -104,6 +133,7 @@ export function greedyMesh(blocks: Uint16Array, light: Uint8Array): ChunkMeshes 
 
   meshPass(blocks, light, idx, opaque, false);
   meshPass(blocks, light, idx, water, true);
+  surfaceNets(blocks, light, idx, opaque);
 
   // Torches and plants: small non-greedy models.
   for (let y = 0; y < CS; y++)
@@ -156,7 +186,8 @@ function meshPass(
   // Does a block of this id show a face toward a neighbor of id `nb`?
   const shows = (id: number, nb: number): boolean => {
     if (waterPass) return SHAPE[id] === 'water' && SHAPE[nb] !== 'water' && OPAQUE[nb] === 0;
-    return OPAQUE[id] === 1 && OPAQUE[nb] === 0;
+    // Smooth (natural) blocks are drawn by the surface-net pass; cubes still show faces toward them.
+    return OPAQUE[id] === 1 && SMOOTH[id] === 0 && (OPAQUE[nb] === 0 || SMOOTH[nb] === 1);
   };
   const occ = (px: number, py: number, pz: number) => OPAQUE[blocks[idx(px, py, pz)]];
 
@@ -261,4 +292,111 @@ function meshPass(
       }
     }
   }
+}
+
+/** Cube side textures with a grass/snow fringe; on smooth slopes these blocks wear their top texture. */
+const FRINGE_TILES = new Set<number>(
+  (['grass_side', 'gold_grass_side', 'teal_grass_side', 'heather_side', 'snow_side'] as const).map((t) => TILE[t]),
+);
+
+/** [vertical-projection tile, side-projection tile] for a smooth block. */
+function smoothTiles(id: number, up: boolean): [number, number] {
+  const top = BLOCK_TILES[id * 3], side = BLOCK_TILES[id * 3 + 1], bottom = BLOCK_TILES[id * 3 + 2];
+  return [up ? top : bottom, FRINGE_TILES.has(side) ? top : side];
+}
+
+/**
+ * Naive surface nets over the smooth blocks: one vertex per cell (8 voxel centers) that
+ * straddles the surface, placed at the centroid of its edge crossings, and one quad per
+ * solid/empty voxel pair. On a binary grid this yields a chamfered, faceted surface whose flat
+ * areas line up exactly with the block faces used for collision.
+ */
+function surfaceNets(
+  blocks: Uint16Array,
+  light: Uint8Array,
+  idx: (x: number, y: number, z: number) => number,
+  out: Builder,
+): void {
+  const C = CS + 1; // cells −1..CS−1 on each axis
+  const cellIndex = (x: number, y: number, z: number) => x + 1 + (z + 1) * C + (y + 1) * C * C;
+  const verts = new Float32Array(C * C * C * 3);
+  const vao = new Uint8Array(C * C * C);
+  const solid = (x: number, y: number, z: number) => SMOOTH[blocks[idx(x, y, z)]];
+  const occluder = (x: number, y: number, z: number) => {
+    const b = blocks[idx(x, y, z)];
+    return SMOOTH[b] || OPAQUE[b] ? 1 : 0;
+  };
+  const corner = new Uint8Array(8);
+
+  for (let cy = -1; cy < CS; cy++)
+    for (let cz = -1; cz < CS; cz++)
+      for (let cx = -1; cx < CS; cx++) {
+        let n = 0, occ = 0;
+        for (let k = 0; k < 8; k++) {
+          const dx = k & 1, dy = (k >> 1) & 1, dz = (k >> 2) & 1;
+          corner[k] = solid(cx + dx, cy + dy, cz + dz);
+          n += corner[k];
+          occ += occluder(cx + dx, cy + dy, cz + dz);
+        }
+        if (n === 0 || n === 8) continue;
+        // Centroid of the crossing points on the 12 cell edges (midpoints on a binary grid).
+        let sx = 0, sy = 0, sz = 0, m = 0;
+        for (let k = 0; k < 8; k++)
+          for (const bit of [1, 2, 4]) {
+            const j = k | bit;
+            if (j === k || corner[k] === corner[j]) continue;
+            sx += ((k & 1) + (j & 1)) / 2;
+            sy += (((k >> 1) & 1) + ((j >> 1) & 1)) / 2;
+            sz += (((k >> 2) & 1) + ((j >> 2) & 1)) / 2;
+            m++;
+          }
+        const ci = cellIndex(cx, cy, cz) * 3;
+        // Voxel centers sit at +0.5, so cell (cx..) spans cx+0.5 .. cx+1.5.
+        verts[ci] = cx + 0.5 + sx / m;
+        verts[ci + 1] = cy + 0.5 + sy / m;
+        verts[ci + 2] = cz + 0.5 + sz / m;
+        vao[ci / 3] = Math.max(0, Math.min(3, occ - 4));
+      }
+
+  const v = [0, 0, 0];
+  const e = [0, 0, 0];
+  const cellAt = (du: number, dv: number, u: number, w: number) => {
+    const c = [v[0], v[1], v[2]];
+    c[u] += du;
+    c[w] += dv;
+    return cellIndex(c[0], c[1], c[2]);
+  };
+  for (let y = 0; y < CS; y++)
+    for (let z = 0; z < CS; z++)
+      for (let x = 0; x < CS; x++) {
+        v[0] = x; v[1] = y; v[2] = z;
+        const a = solid(x, y, z);
+        for (let d = 0; d < 3; d++) {
+          e[0] = e[1] = e[2] = 0;
+          e[d] = 1;
+          const b = solid(x + e[0], y + e[1], z + e[2]);
+          if (a === b) continue;
+          const u = (d + 1) % 3, w = (d + 2) % 3;
+          // The four cells around the edge between voxel v and v + e_d, CCW seen from +d.
+          const cells = [cellAt(-1, -1, u, w), cellAt(0, -1, u, w), cellAt(0, 0, u, w), cellAt(-1, 0, u, w)];
+          if (!a) cells.reverse(); // surface faces −d
+          const solidId = a ? blocks[idx(x, y, z)] : blocks[idx(x + e[0], y + e[1], z + e[2])];
+          const freeI = a ? idx(x + e[0], y + e[1], z + e[2]) : idx(x, y, z);
+          const l = light[freeI];
+          const p = cells.map((c) => [verts[c * 3], verts[c * 3 + 1], verts[c * 3 + 2]]);
+          const ao = cells.map((c) => vao[c]);
+          // Split along the shorter diagonal for nicer facets.
+          const d02 = (p[0][0] - p[2][0]) ** 2 + (p[0][1] - p[2][1]) ** 2 + (p[0][2] - p[2][2]) ** 2;
+          const d13 = (p[1][0] - p[3][0]) ** 2 + (p[1][1] - p[3][1]) ** 2 + (p[1][2] - p[3][2]) ** 2;
+          const tris = d02 <= d13 ? [[0, 1, 2], [0, 2, 3]] : [[1, 2, 3], [1, 3, 0]];
+          for (const t of tris) {
+            const pts = t.flatMap((k) => p[k]);
+            // Pick the top or bottom texture by which way the facet faces (y of the face normal).
+            const ax = pts[3] - pts[0], az = pts[5] - pts[2];
+            const bx = pts[6] - pts[0], bz = pts[8] - pts[2];
+            const [tileY, tileSide] = smoothTiles(solidId, az * bx - ax * bz >= 0);
+            out.tri(pts, l >> 4, EMISSION[solidId] > 0 ? 15 : l & 15, t.map((k) => ao[k]), tileY, tileSide);
+          }
+        }
+      }
 }
