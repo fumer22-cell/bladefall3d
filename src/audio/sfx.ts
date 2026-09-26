@@ -23,7 +23,9 @@ export type SfxName =
   | 'dig'
   | 'break'
   | 'place'
-  | 'pickup';
+  | 'pickup'
+  | 'groan'
+  | 'caw';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -158,6 +160,14 @@ export function play(name: SfxName): void {
     case 'break':
       noise('lowpass', 900, 0.8, 0.45, 0.14);
       tone('sine', 120, 0.25, 0.1, 70);
+      break;
+    case 'groan':
+      tone('sawtooth', 70, 0.18, 0.7, 52);
+      noise('lowpass', 300, 1.2, 0.2, 0.6, 180);
+      break;
+    case 'caw':
+      tone('sawtooth', 620, 0.12, 0.16, 420);
+      tone('square', 540, 0.06, 0.2, 380, 0.18);
       break;
     case 'pickup':
       tone('sine', 880, 0.1, 0.06, 1320);

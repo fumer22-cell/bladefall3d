@@ -7,7 +7,7 @@ for (const [action, codes] of Object.entries(KEYS) as [Action, readonly string[]
 
 /** Actions handled per rendered frame rather than per sim step. */
 const UI_ACTIONS = new Set<Action>([
-  'reset', 'debug', 'slowmo', 'dummyMode', 'dummyReset', 'inventory', 'debugKit',
+  'reset', 'debug', 'slowmo', 'dummyMode', 'dummyReset', 'inventory', 'debugKit', 'toggleSpawns',
   'slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6', 'slot7', 'slot8', 'slot9',
 ]);
 

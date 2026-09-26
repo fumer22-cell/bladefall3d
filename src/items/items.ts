@@ -58,6 +58,8 @@ add({ id: 'raw_copper', name: 'Raw Copper', kind: 'material', color: 0xc07a4a, a
 add({ id: 'raw_iron', name: 'Raw Iron', kind: 'material', color: 0xc9a88a, abbr: 'rFe' });
 add({ id: 'copper_ingot', name: 'Copper Ingot', kind: 'material', color: 0xe08a50, abbr: 'Cu' });
 add({ id: 'iron_ingot', name: 'Iron Ingot', kind: 'material', color: 0xd8d8dc, abbr: 'Fe' });
+add({ id: 'bone', name: 'Husk Bone', kind: 'material', color: 0xc9bfa7, abbr: 'Bn' });
+add({ id: 'feather', name: 'Crow Feather', kind: 'material', color: 0x2b2437, abbr: 'Fr' });
 
 // --- Pickaxes ---
 add({ id: 'wooden_pickaxe', name: 'Wooden Pickaxe', kind: 'tool', color: 0xb08952, maxStack: 1, tool: TIERS.WOOD, abbr: 'Pk' });

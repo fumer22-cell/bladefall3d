@@ -506,6 +506,79 @@ export const DUMMY = {
   } satisfies Record<string, EnemyAttackDef>,
 } as const;
 
+/** Wild enemies (Phase 5): Husks and Carrion Crows. */
+export const ENEMIES = {
+  SPAWN_ENABLED: true,
+  /** Seconds between spawn attempts. */
+  SPAWN_INTERVAL: 1.2,
+  SPAWN_MIN_DIST: 22,
+  SPAWN_MAX_DIST: 46,
+  DESPAWN_DIST: 90,
+  MAX_HUSKS: 7,
+  MAX_CROWS: 3,
+  /** Husks only spawn where block (torch) light is at most this: torches make safe zones. */
+  HUSK_MAX_BLOCK_LIGHT: 6,
+  /** Crows need open sky. */
+  CROW_MIN_SKY_LIGHT: 13,
+  /** A* node budget per path search. */
+  PATH_BUDGET: 900,
+  REPATH_INTERVAL: 0.7,
+  /** Enemies push apart when closer than this. */
+  SEPARATION: 1.1,
+  /** Dead bodies linger this long before vanishing. */
+  CORPSE_TIME: 1.6,
+
+  HUSK: {
+    HEALTH: 70,
+    POSTURE: 70,
+    WIDTH: 0.7,
+    HEIGHT: 1.9,
+    SPEED: 3.4,
+    /** Speed while wandering with no target. */
+    WANDER_SPEED: 1.4,
+    JUMP_VELOCITY: 11,
+    AGGRO_RANGE: 22,
+    /** Gives up chasing beyond this. */
+    LEASH_RANGE: 40,
+    ATTACK_RANGE: 2.6,
+    ATTACK_COOLDOWN: [0.6, 1.4],
+    TURN_RATE: 6,
+    PARRIED_RECOIL: 1.0,
+    /** Chance the red lunge is chosen instead of a normal swing. */
+    LUNGE_CHANCE: 0.18,
+    HEAVY_CHANCE: 0.3,
+    COMBO_CHANCE: 0.3,
+    LUNGE_SPEED: 11,
+    ATTACKS: {
+      slash: { name: 'slash', windup: 0.75, active: 0.1, recovery: 0.6, damage: 15, posture: 20, reach: 2.9, arc: 70, unblockable: false },
+      overhead: { name: 'overhead', windup: 1.05, active: 0.12, recovery: 0.8, damage: 24, posture: 34, reach: 3.1, arc: 40, unblockable: false },
+      lunge: { name: 'lunge', windup: 0.85, active: 0.25, recovery: 0.9, damage: 20, posture: 25, reach: 2.4, arc: 60, unblockable: true },
+    } satisfies Record<string, EnemyAttackDef>,
+    LOOT: { bone: [1, 2], raw_copper: [0, 1] },
+  },
+
+  CROW: {
+    HEALTH: 26,
+    POSTURE: 24,
+    WIDTH: 0.8,
+    HEIGHT: 0.6,
+    SPEED: 9,
+    ORBIT_RADIUS: 9,
+    ALTITUDE: 6,
+    AGGRO_RANGE: 34,
+    SPIT_COOLDOWN: [2.6, 4.2],
+    SPIT_WINDUP: 0.65,
+    DIVE_CHANCE: 0.3,
+    DIVE_SPEED: 16,
+    TURN_RATE: 4,
+    PARRIED_RECOIL: 0.8,
+    ATTACKS: {
+      peck: { name: 'peck', windup: 0.35, active: 0.12, recovery: 0.5, damage: 10, posture: 12, reach: 2.3, arc: 80, unblockable: false },
+    } satisfies Record<string, EnemyAttackDef>,
+    LOOT: { feather: [1, 3] },
+  },
+} as const;
+
 export const PROJECTILE = {
   SPEED: 16,
   RADIUS: 0.18,
@@ -564,6 +637,7 @@ export const KEYS = {
   debugKit: ['KeyK'],
   dummyMode: ['KeyG'],
   dummyReset: ['KeyH'],
+  toggleSpawns: ['KeyP'],
   reset: ['KeyR'],
   debug: ['F3'],
   slowmo: ['KeyT'],

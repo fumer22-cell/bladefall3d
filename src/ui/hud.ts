@@ -1,5 +1,5 @@
 import { Vector3, type PerspectiveCamera } from 'three';
-import { COMBAT, DUMMY, INVENTORY, MOVE } from '../config';
+import { COMBAT, INVENTORY, MOVE } from '../config';
 import { DEG } from '../core/math';
 import type { CombatSystem } from '../combat/combatSystem';
 import { DUMMY_MODE_LABELS, type Dummy } from '../combat/trainingDummy';
@@ -249,8 +249,9 @@ export class Hud {
     this.posture.classList.toggle('high', pf > 0.75);
     this.posture.style.opacity = pf > 0.01 ? '1' : '0.25';
 
-    const d0 = cs.dummies[0];
-    this.mode.innerHTML = d0 ? `DUMMY [G]: <b>${DUMMY_MODE_LABELS[d0.mode]}</b>` : '';
+    const d0 = cs.enemies.find((e) => e.kind === 'dummy') as Dummy | undefined;
+    const wild = cs.enemies.filter((e) => e.kind !== 'dummy' && e.alive).length;
+    this.mode.innerHTML = (d0 ? `DUMMY [G]: <b>${DUMMY_MODE_LABELS[d0.mode]}</b>` : '') + (wild ? ` · ENEMIES: <b>${wild}</b>` : '');
 
     // Swing direction indicator during windup.
     const winding = c.phase === 'windup' && c.swing;
@@ -295,17 +296,24 @@ export class Hud {
     const camDir = new Vector3();
     camera.getWorldDirection(camDir);
 
-    cs.dummies.forEach((d: Dummy, i) => {
+    const n = cs.enemies.length;
+    for (let i = n; i < this.targets.length; i++) {
+      this.targets[i].root.classList.remove('on');
+      this.warns[i]?.classList.remove('on');
+    }
+    cs.enemies.forEach((d, i) => {
       const t = (this.targets[i] ??= this.makeTarget());
-      v.set(d.pos.x, d.pos.y + DUMMY.HEIGHT + 0.45, d.pos.z);
+      v.set(d.pos.x, d.pos.y + d.height + 0.45, d.pos.z);
       const toTarget = v.clone().sub(camera.position);
-      const visible = d.alive && toTarget.dot(camDir) > 0 && toTarget.length() < 40;
+      // Wild enemies only show bars once engaged (hurt, posture taken) or close.
+      const engaged = d.kind === 'dummy' || d.health < d.maxHealth || d.posture.value > 0 || toTarget.length() < 10;
+      const visible = d.alive && engaged && toTarget.dot(camDir) > 0 && toTarget.length() < 40;
       t.root.classList.toggle('on', visible);
       if (visible) {
         v.project(camera);
         t.root.style.left = `${((v.x + 1) / 2) * w}px`;
         t.root.style.top = `${((1 - v.y) / 2) * h}px`;
-        t.health.style.width = `${(d.health / DUMMY.MAX_HEALTH) * 100}%`;
+        t.health.style.width = `${(d.health / d.maxHealth) * 100}%`;
         t.posture.style.width = `${d.posture.fraction * 100}%`;
         t.prompt.classList.toggle('on', d === dbTarget);
       }

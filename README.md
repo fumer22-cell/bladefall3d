@@ -42,5 +42,11 @@ All tunable numbers live in [`src/config.ts`](src/config.ts).
   of plateaus of very different heights (sheer mesas and canyons in some regions, stepped terraces in others) with
   columnar cliff rock, alcoves, overhangs and vines.
 
+- **Phase 5 — enemies:** Husks (hunched ground melee: slashes, overheads, unblockable red lunges and combos) spawn
+  in darkness — caves, under overhangs, unlit ground — and chase you with voxel A* pathfinding (stepping up, dropping
+  down, jumping gaps). Carrion Crows spawn under open sky, circle overhead and spit parryable orbs (perfect-parry
+  them back) or dive in to peck; break a crow's posture and it falls out of the sky for a deathblow. Kills drop Husk
+  Bones and Crow Feathers. Press **P** to toggle wild spawning (clears current wild enemies).
+
 Controls are listed on the start screen.
 Crouch is bound to **C** (and X), not Ctrl: in a browser, Ctrl+W closes the tab.

@@ -1,14 +1,16 @@
 import { Color, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, SphereGeometry, type Scene } from 'three';
 import { DUMMY } from '../config';
 import { damp, lerp } from '../core/math';
+import type { Combatant } from '../combat/combatant';
 import type { Dummy } from '../combat/trainingDummy';
+import type { CombatantView } from './enemyViews';
 import { box } from './boxModel';
 
 const YELLOW = new Color(0xffc400);
 const RED = new Color(0xff1a1a);
 
 /** Box-model training dummy: straw body on a post, one arm holding a sword. */
-export class DummyView {
+export class DummyView implements CombatantView {
   private readonly root = new Group();
   private readonly body = new Group();
   private readonly arm = new Group();
@@ -25,7 +27,7 @@ export class DummyView {
   private lastHealth: number = DUMMY.MAX_HEALTH;
   private time = 0;
 
-  constructor(scene: Scene) {
+  constructor(private readonly scene: Scene) {
     scene.add(this.root);
     this.root.add(this.body);
     this.flashMat = new MeshLambertMaterial({ color: 0xc8a45a });
@@ -54,7 +56,12 @@ export class DummyView {
     this.body.add(this.redDot);
   }
 
-  update(d: Dummy, alpha: number, dt: number): void {
+  dispose(): void {
+    this.scene.remove(this.root);
+  }
+
+  update(e: Combatant, alpha: number, dt: number): void {
+    const d = e as Dummy;
     this.time += dt;
     this.root.position.set(lerp(d.prevPos.x, d.pos.x, alpha), lerp(d.prevPos.y, d.pos.y, alpha), lerp(d.prevPos.z, d.pos.z, alpha));
     this.root.rotation.y = d.yaw;

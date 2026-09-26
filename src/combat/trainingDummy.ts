@@ -3,6 +3,7 @@ import { COMBAT, DUMMY, type EnemyAttackDef } from '../config';
 import { lerp, moveToward2 } from '../core/math';
 import { moveBox, type AABB } from '../world/collision';
 import type { VoxelQuery } from '../world/world';
+import type { Combatant, CombatantEvent } from './combatant';
 import { Posture } from './posture';
 
 export type DummyMode = 'idle' | 'attacker' | 'mixed' | 'shooter' | 'parrier';
@@ -40,7 +41,15 @@ export interface PlayerView {
   windupSwingId: number;
 }
 
-export class Dummy {
+export class Dummy implements Combatant {
+  readonly kind = 'dummy';
+  readonly maxHealth: number = DUMMY.MAX_HEALTH;
+  readonly height: number = DUMMY.HEIGHT;
+  /** The dummy respawns instead of being removed. */
+  readonly removable = false;
+  loot(): { item: string; count: number }[] {
+    return [];
+  }
   readonly pos = new Vector3();
   readonly prevPos = new Vector3();
   readonly vel = new Vector3();
@@ -62,7 +71,7 @@ export class Dummy {
 
   health: number = DUMMY.MAX_HEALTH;
   readonly posture = new Posture(DUMMY.MAX_POSTURE);
-  events: DummyEvent[] = [];
+  events: CombatantEvent[] = [];
 
   constructor(x: number, y: number, z: number, private readonly rng: () => number = Math.random) {
     this.spawn.set(x, y, z);

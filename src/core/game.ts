@@ -3,7 +3,7 @@ import { play, unlockAudio } from '../audio/sfx';
 import { CombatSystem } from '../combat/combatSystem';
 import { NO_COMBAT_INTENT, type CombatIntent } from '../combat/playerCombat';
 import { Dummy, DUMMY_MODES } from '../combat/trainingDummy';
-import { CAMERA, COMBAT, PARTICLES, PLAYER, SAVE, SIM, SKY, TEST_ARENA, WORLD, type Action } from '../config';
+import { CAMERA, COMBAT, ENEMIES, PARTICLES, PLAYER, SAVE, SIM, SKY, TEST_ARENA, WORLD, type Action } from '../config';
 import { craft, nearbyStations } from '../items/crafting';
 import { Drops } from '../items/drops';
 import { Inventory } from '../items/inventory';
@@ -20,6 +20,9 @@ import { BlockHighlight } from '../render/blockHighlight';
 import { CameraRig } from '../render/cameraRig';
 import { ChunkRenderer } from '../render/chunkRenderer';
 import { DummyView } from '../render/dummyView';
+import { CrowView, HuskView, type CombatantView } from '../render/enemyViews';
+import { Spawner } from '../enemies/spawner';
+import type { Combatant } from '../combat/combatant';
 import { Particles } from '../render/particles';
 import { ProjectileView } from '../render/projectileView';
 import { Renderer } from '../render/renderer';
@@ -68,7 +71,9 @@ export class Game {
   readonly streamer: WorldStreamer | null = null;
   readonly seed: number;
   private readonly highlight: BlockHighlight;
-  private readonly dummyViews: DummyView[] = [];
+  private readonly views = new Map<Combatant, CombatantView>();
+  private dummy!: Dummy;
+  readonly spawner = new Spawner();
   private readonly projectileView: ProjectileView;
   private readonly spawnPoint = new Vector3();
   /** World mode: false until the spawn area has generated. */
@@ -191,8 +196,47 @@ export class Game {
   }
 
   private addDummy(x: number, y: number, z: number): void {
-    this.combat.dummies.push(new Dummy(x, y, z));
-    this.dummyViews.push(new DummyView(this.renderer.scene));
+    this.dummy = new Dummy(x, y, z);
+    this.addEnemy(this.dummy);
+  }
+
+  private addEnemy(e: Combatant): void {
+    this.combat.enemies.push(e);
+    const scene = this.renderer.scene;
+    this.views.set(e, e.kind === 'husk' ? new HuskView(scene) : e.kind === 'crow' ? new CrowView(scene) : new DummyView(scene));
+  }
+
+  private removeEnemy(e: Combatant): void {
+    const list = this.combat.enemies;
+    const i = list.indexOf(e);
+    if (i >= 0) list.splice(i, 1);
+    this.views.get(e)?.dispose();
+    this.views.delete(e);
+  }
+
+  /** Spawn/despawn wild enemies, remove corpses, keep enemies from stacking on each other. */
+  private updateEnemies(dt: number): void {
+    const list = this.combat.enemies;
+    if (this.streamer && this.ready) {
+      const despawn = new Set<Combatant>();
+      for (const e of this.spawner.update(dt, this.world, this.player.pos, list, despawn)) this.addEnemy(e);
+      for (const e of despawn) this.removeEnemy(e);
+    }
+    for (const e of [...list]) if (e.removable) this.removeEnemy(e);
+    const S = ENEMIES.SEPARATION;
+    for (let i = 0; i < list.length; i++)
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (!a.alive || !b.alive || a.kind === 'dummy' || b.kind === 'dummy') continue;
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, dy = b.pos.y - a.pos.y;
+        const d = Math.hypot(dx, dz);
+        if (d >= S || d < 1e-4 || Math.abs(dy) > 1.5) continue;
+        const push = ((S - d) / d) * 2;
+        a.vel.x -= dx * push;
+        a.vel.z -= dz * push;
+        b.vel.x += dx * push;
+        b.vel.z += dz * push;
+      }
   }
 
   private respawn(): void {
@@ -253,7 +297,7 @@ export class Game {
     const x = p.pos.x - Math.sin(p.yaw) * dist, z = p.pos.z - Math.cos(p.yaw) * dist;
     let y = this.surfaceY(Math.floor(x), Math.floor(z), Math.floor(p.pos.y) + 4, false);
     if (y < 0) y = p.pos.y;
-    this.combat.dummies[0]?.moveTo(x, y + 0.01, z);
+    this.dummy.moveTo(x, y + 0.01, z);
   }
 
   /** Hook combat events up to hitstop, camera shake, particles, sound and HUD flashes. */
@@ -313,7 +357,11 @@ export class Game {
       fx.blood(e.pos, 60);
       play('deathblow');
     });
-    ev.on('kill', (e) => fx.blood(e.pos, 50));
+    ev.on('kill', (e) => {
+      fx.blood(e.pos, 50);
+      for (const l of e.target.loot()) for (let k = 0; k < l.count; k++) this.drops.spawn(e.pos.x, e.pos.y, e.pos.z, l.item);
+    });
+    ev.on('aggro', (e) => play(e.kind === 'crow' ? 'caw' : 'groan'));
     ev.on('heal', () => {
       this.hud.onHeal();
       this.hud.flash('heal', 0.35);
@@ -367,6 +415,7 @@ export class Game {
     stepMovement(player, move, this.world, dt);
     if (dashed) play('dash');
     combat.step(dt, this.combatIntent(dashed), input.locked && input.wasPressed('interact'));
+    this.updateEnemies(dt);
 
     const b = this.builder;
     b.update(
@@ -377,7 +426,7 @@ export class Game {
         placePressed: input.locked && input.wasPressed('block'),
       },
       this.world,
-      [player.box(), ...combat.dummies.filter((d) => d.alive).map((d) => d.hurtbox())],
+      [player.box(), ...combat.enemies.filter((d) => d.alive).map((d) => d.hurtbox())],
       this.inventory,
     );
     for (const e of b.events) {
@@ -449,7 +498,12 @@ export class Game {
       if (input.locked) this.playTime += frameDt;
     }
     if (input.consumePress('dummyMode')) {
-      for (const d of combat.dummies) d.setMode(DUMMY_MODES[(DUMMY_MODES.indexOf(d.mode) + 1) % DUMMY_MODES.length]);
+      this.dummy.setMode(DUMMY_MODES[(DUMMY_MODES.indexOf(this.dummy.mode) + 1) % DUMMY_MODES.length]);
+    }
+    if (input.consumePress('toggleSpawns')) {
+      this.spawner.enabled = !this.spawner.enabled;
+      if (!this.spawner.enabled) for (const e of [...combat.enemies]) if (e.kind !== 'dummy') this.removeEnemy(e);
+      this.hud.toast(this.spawner.enabled ? 'Enemy spawning on' : 'Enemy spawning off (cleared)');
     }
     if (input.consumePress('dummyReset')) this.placeDummyInFront(4);
     this.loop.timeScale = (this.slowmo ? SIM.DEBUG_SLOWMO_SCALE : 1) * (combat.deathblow ? COMBAT.DEATHBLOW_TIMESCALE : 1);
@@ -476,7 +530,7 @@ export class Game {
     this.highlight.update(builder.target, builder.progress, builder.enabled);
     hand.mining = builder.enabled && builder.target !== null && input.locked && input.isHeld('attack');
     this.viewmodel.update(frameDt, cam, combat.combat, player, this.frameMouseDx, this.frameMouseDy, hand);
-    combat.dummies.forEach((d, i) => this.dummyViews[i].update(d, alpha, frameDt * this.loop.timeScale));
+    for (const e of combat.enemies) this.views.get(e)?.update(e, alpha, frameDt * this.loop.timeScale);
     this.projectileView.update(combat.projectiles, alpha);
     this.particles.update(frameDt * this.loop.timeScale);
     this.updateFog(frameDt);

@@ -8,7 +8,7 @@ import { resolveDefense } from './defense';
 import { swingHits, inCone } from './melee';
 import { PlayerCombat, type CombatIntent } from './playerCombat';
 import { Projectiles, type Projectile } from './projectiles';
-import type { Dummy } from './trainingDummy';
+import type { Combatant } from './combatant';
 
 type V3 = { x: number; y: number; z: number };
 
@@ -25,7 +25,8 @@ export interface CombatEventMap extends Record<string, unknown> {
   playerHit: { damage: number; from: V3 };
   postureBreak: { pos: V3; player: boolean };
   deathblow: { pos: V3 };
-  kill: { pos: V3 };
+  kill: { pos: V3; target: Combatant };
+  aggro: { kind: string };
   heal: { amount: number };
   shoot: { pos: V3 };
   projectileBurst: { pos: V3 };
@@ -33,7 +34,7 @@ export interface CombatEventMap extends Record<string, unknown> {
 }
 
 interface Deathblow {
-  target: Dummy;
+  target: Combatant;
   t: number;
   struck: boolean;
 }
@@ -42,7 +43,8 @@ export class CombatSystem {
   readonly events = new Emitter<CombatEventMap>();
   readonly combat = new PlayerCombat();
   readonly projectiles = new Projectiles();
-  readonly dummies: Dummy[] = [];
+  /** Everything the player can fight: the dummy and wild enemies. */
+  readonly enemies: Combatant[] = [];
   deathblow: Deathblow | null = null;
   /** Seconds until respawn while dead (0 = alive). */
   deadTimer = 0;
@@ -64,10 +66,10 @@ export class CombatSystem {
   }
 
   /** A staggered target the player can deathblow right now, if any. */
-  deathblowTarget(): Dummy | null {
+  deathblowTarget(): Combatant | null {
     const eye = this.eye();
     const look = this.lookDir();
-    for (const d of this.dummies) {
+    for (const d of this.enemies) {
       if (!d.staggered) continue;
       const to = d.center().sub(eye);
       const dist = to.length();
@@ -122,12 +124,13 @@ export class CombatSystem {
 
     // Dummies.
     const windupSwingId = combat.phase === 'windup' && combat.swing ? combat.swing.id : 0;
-    for (const d of this.dummies) {
+    for (const d of this.enemies) {
       d.update(dt, this.world, { pos: player.pos, windupSwingId });
       for (const e of d.events) {
         if (e.type === 'attack') this.resolveEnemyMelee(d, e.attack);
         else if (e.type === 'telegraph') this.events.emit('telegraph', { unblockable: e.unblockable });
         else if (e.type === 'shoot') this.fireAtPlayer(d);
+        else if (e.type === 'aggro') this.events.emit('aggro', { kind: d.kind });
       }
       d.events.length = 0;
     }
@@ -144,7 +147,7 @@ export class CombatSystem {
     const w = combat.weapon;
     const eye = this.eye();
     const dirMod = COMBAT.DIR[s.dir];
-    for (const d of this.dummies) {
+    for (const d of this.enemies) {
       if (!d.alive || d.lastHitSwing === s.id) continue;
       if (!swingHits(eye, player.yaw, player.pitch, s.dir, w.reach, d.hurtbox())) continue;
       d.lastHitSwing = s.id;
@@ -178,7 +181,7 @@ export class CombatSystem {
     }
   }
 
-  private resolveEnemyMelee(d: Dummy, a: EnemyAttackDef): void {
+  private resolveEnemyMelee(d: Combatant, a: EnemyAttackDef): void {
     const { combat, player } = this;
     if (this.isDead() || this.deathblow) return;
     const dy = player.pos.y - d.pos.y;
@@ -249,9 +252,9 @@ export class CombatSystem {
     if (c.health > before) this.events.emit('heal', { amount: c.health - before });
   }
 
-  private onKill(d: Dummy): void {
+  private onKill(d: Combatant): void {
     const pos = d.center();
-    this.events.emit('kill', { pos });
+    this.events.emit('kill', { pos, target: d });
     const eye = this.eye();
     if (eye.distanceTo(pos) <= COMBAT.BLOOD_HEAL_RADIUS) this.heal(COMBAT.BLOOD_KILL_HEAL);
   }
@@ -294,7 +297,7 @@ export class CombatSystem {
     }
   }
 
-  private fireAtPlayer(d: Dummy): void {
+  private fireAtPlayer(d: Combatant): void {
     const from = d.center();
     from.y += 0.3;
     const eye = this.eye();
@@ -339,7 +342,7 @@ export class CombatSystem {
           this.events.emit('projectileBurst', { pos: p.pos });
         }
       } else {
-        for (const d of this.dummies) {
+        for (const d of this.enemies) {
           if (!d.alive || !sphereHitsBox(p.pos, PROJECTILE.RADIUS, d.hurtbox())) continue;
           p.dead = true;
           const pos = p.pos.clone();

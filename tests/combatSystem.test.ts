@@ -12,7 +12,7 @@ function setup(mode: Dummy['mode']) {
   const cs = new CombatSystem(player, world, () => {});
   const dummy = new Dummy(32.5, 4, 32.5, () => 0.99);
   dummy.setMode(mode);
-  cs.dummies.push(dummy);
+  cs.enemies.push(dummy);
   const events: string[] = [];
   for (const k of ['hit', 'parry', 'guard', 'playerHit', 'postureBreak', 'deathblow', 'kill', 'playerParried'] as const) {
     cs.events.on(k, () => events.push(k));
