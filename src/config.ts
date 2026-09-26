@@ -231,13 +231,21 @@ export const UPGRADES = {
 export const LOOM = {
   ENABLED: true,
   /** Distance (m) where the warp begins; everything nearer is untouched. */
-  BOUNDARY: 52,
-  /** Softness (m): larger = gentler compression. */
-  SOFTNESS: 60,
+  BOUNDARY: 24,
+  /** Softness (m): smaller = harder compression (160 m away is drawn at ~65 m). */
+  SOFTNESS: 20,
+  /**
+   * Above eye level, distant things also grow taller by up to 1 + this (full effect far away), so
+   * far cliffs tower over you. Below eye level everything keeps its true angle. 0 = true height.
+   */
+  HEIGHT_BOOST: 1.6,
   /** Seconds to blend when toggled. */
   TOGGLE_TIME: 0.7,
   /** Painted backdrop in the warped zone. */
   PAINT: true,
+  /** Painting fades in between these drawn (warped) distances, in metres. */
+  PAINT_START: 36,
+  PAINT_END: 56,
   /** Painted pixel size, in low-res pixels. */
   PAINT_BLOCK: 2,
   /** Luminance bands in the painted zone. */
@@ -245,9 +253,9 @@ export const LOOM = {
   /** Haze mixed in per depth band (0..1). */
   PAINT_HAZE: 0.1,
   /** Rim light where land meets sky (0..1). */
-  PAINT_RIM: 0.35,
+  PAINT_RIM: 0.4,
   /** Fog uses this mix of warped (1) and true (0) distance. */
-  FOG_WARPED: 0.75,
+  FOG_WARPED: 0.85,
 } as const;
 
 export const PIXEL = {

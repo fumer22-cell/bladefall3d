@@ -92,6 +92,8 @@ export class PixelPipeline {
         screen: { value: [1, 1] },
         uLoom: loomUniforms.uLoom,
         paint: { value: LOOM.PAINT ? 1 : 0 },
+        paintStart: { value: LOOM.PAINT_START },
+        paintEnd: { value: LOOM.PAINT_END },
         paintBlock: { value: LOOM.PAINT_BLOCK },
         paintLevels: { value: LOOM.PAINT_LEVELS },
         paintHaze: { value: LOOM.PAINT_HAZE },
@@ -124,6 +126,8 @@ export class PixelPipeline {
         }
 
         uniform float paint;
+        uniform float paintStart;
+        uniform float paintEnd;
         uniform float paintBlock;
         uniform float paintLevels;
         uniform float paintHaze;
@@ -139,13 +143,6 @@ export class PixelPipeline {
           return texelFetch(tDepth, p, 0).r > 0.99999;
         }
 
-        /** How far into the looming zone a pixel is: 0 near, → 1 far. The depth buffer holds the
-         *  warped distance w, and the warp's slope there is exp(−(w − D)/S). */
-        float loomAmount(ivec2 p) {
-          if (isSky(p)) return uLoom.z;
-          float w = viewZ(p);
-          return w <= uLoom.x ? 0.0 : uLoom.z * (1.0 - exp(-(w - uLoom.x) / uLoom.y));
-        }
 
         float bayer4(ivec2 p) {
           int x = p.x & 3, y = p.y & 3;
@@ -172,10 +169,10 @@ export class PixelPipeline {
             int B = int(paintBlock);
             ivec2 bp = p / B;
             ivec2 bc = clamp(bp * B + B / 2, ivec2(0), size - 1);
-            float amtB = loomAmount(bc);
-            float dth = bayer4(bp) + 0.5;
-            float t = smoothstep(0.12, 0.42, amtB);
             bool sky = isSky(bc);
+            float wB = sky ? 1e4 : viewZ(bc);
+            float dth = bayer4(bp) + 0.5;
+            float t = smoothstep(paintStart, paintEnd, wB) * uLoom.z;
             // The sky is already painterly: leave it alone.
             if (t > dth && !sky) {
               painted = true;
@@ -185,7 +182,7 @@ export class PixelPipeline {
                   avg += toSrgb(texelFetch(tColor, clamp(bp * B + ivec2(i, j) * max(B - 1, 1), ivec2(0), size - 1), 0).rgb);
               vec3 q = mix(toSrgb(texelFetch(tColor, bc, 0).rgb), avg * 0.25, 0.75);
               if (!sky) {
-                float band = amtB < 0.5 ? 0.0 : (amtB < 0.66 ? 1.0 : (amtB < 0.8 ? 2.0 : 3.0));
+                float band = min(3.0, floor(max(0.0, wB - paintStart) / 12.0));
                 q = mix(q, haze, band * paintHaze);
               }
               float L = max(dot(q, vec3(0.299, 0.587, 0.114)), 0.001);

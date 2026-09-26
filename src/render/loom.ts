@@ -3,14 +3,17 @@ import { LOOM } from '../config';
 
 /**
  * The looming warp, shared by every material that draws in the world.
- * uLoom = (boundary, softness, strength, unused); uCam = camera position.
+ * uLoom = (boundary, softness, strength, height boost); uCam = camera position.
  */
 export const loomUniforms = {
-  uLoom: { value: new Vector4(LOOM.BOUNDARY, LOOM.SOFTNESS, LOOM.ENABLED ? 1 : 0, 0) },
+  uLoom: { value: new Vector4(LOOM.BOUNDARY, LOOM.SOFTNESS, LOOM.ENABLED ? 1 : 0, LOOM.HEIGHT_BOOST) },
   uCam: { value: new Vector3() },
 };
 
-/** GLSL: declarations + `vec3 loomWarp(vec3 worldPos)` (horizontal compression, height kept). */
+/**
+ * GLSL: declarations + `vec3 loomWarp(vec3 worldPos)`: horizontal distance compressed past the
+ * boundary; above eye level, height stretched by up to 1 + boost as things get far.
+ */
 export const LOOM_GLSL = /* glsl */ `
   uniform vec4 uLoom;
   uniform vec3 uCam;
@@ -23,7 +26,13 @@ export const LOOM_GLSL = /* glsl */ `
     vec2 off = w.xz - uCam.xz;
     float r = length(off);
     float k = r > 0.001 ? mix(1.0, loomF(r) / r, uLoom.z) : 1.0;
-    return vec3(uCam.x + off.x * k, w.y, uCam.z + off.y * k);
+    // How deep into the warp (0 at the boundary → 1 far away): 1 − the compression's slope.
+    float amt = r <= uLoom.x ? 0.0 : uLoom.z * (1.0 - uLoom.y / (uLoom.y + r - uLoom.x));
+    float dy = w.y - uCam.y;
+    // Above the eye: stretched upward so far cliffs tower. Below it: scaled with the horizontal
+    // pull so everything keeps its true angle below the horizon and vistas aren't swallowed.
+    float y = uCam.y + (dy > 0.0 ? dy * (1.0 + uLoom.w * amt) : dy * k);
+    return vec3(uCam.x + off.x * k, y, uCam.z + off.y * k);
   }
 `;
 
