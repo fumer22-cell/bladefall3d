@@ -37,6 +37,11 @@ export class FixedLoop {
       this.step(this.dt);
       this.accumulator -= this.dt;
       steps++;
+      // A step requested hitstop: freeze now instead of finishing this frame's backlog.
+      if (this.hitstop > 0) {
+        this.accumulator = 0;
+        break;
+      }
     }
     // Drop backlog we couldn't process instead of accumulating it forever.
     if (steps === SIM.MAX_STEPS_PER_FRAME) this.accumulator = Math.min(this.accumulator, this.dt);

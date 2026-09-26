@@ -239,7 +239,8 @@ function updateGround(p: Player, wish: Wish, world: VoxelQuery, dt: number): voi
   }
   rate *= groundFriction(p, world);
   const h = { x: p.vel.x, z: p.vel.z };
-  moveToward2(h, wish.x * MOVE.RUN_SPEED, wish.z * MOVE.RUN_SPEED, rate * dt);
+  const run = MOVE.RUN_SPEED * p.speedMult;
+  moveToward2(h, wish.x * run, wish.z * run, rate * dt);
   p.vel.x = h.x;
   p.vel.z = h.z;
   p.vel.y -= MOVE.GRAVITY * dt;
@@ -250,7 +251,7 @@ function updateAir(p: Player, wish: Wish, dt: number): void {
     // Quake-style: accelerate toward wish dir only up to RUN_SPEED along it, so momentum above
     // run speed is preserved while steering stays strong.
     const along = p.vel.x * wish.x + p.vel.z * wish.z;
-    const add = MOVE.RUN_SPEED - along;
+    const add = MOVE.RUN_SPEED * p.speedMult - along;
     if (add > 0) {
       const a = Math.min(add, MOVE.AIR_ACCEL * dt);
       p.vel.x += wish.x * a;

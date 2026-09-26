@@ -32,3 +32,51 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-f
 .panel td:first-child { color: #ffcf4a; width: 150px; }
 .panel .go { margin-top: 18px; text-align: center; font-size: 14px; animation: blink 1.4s infinite; }
 @keyframes blink { 50% { opacity: .35; } }
+
+/* --- Combat HUD --- */
+.vitals { position: absolute; left: 20px; bottom: 24px; display: flex; flex-direction: column; gap: 6px; width: 260px; }
+.bar { height: 12px; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.3); position: relative; overflow: hidden; }
+.bar > .fill { position: absolute; inset: 0 auto 0 0; background: #d2283c; transition: width .08s linear; }
+.bar > .lag { position: absolute; inset: 0 auto 0 0; background: #fff2; }
+.bar.heal > .fill { background: #5fe08a; }
+.bar-label { font-size: 11px; opacity: .75; letter-spacing: 1px; display: flex; justify-content: space-between; }
+
+.posture { position: absolute; left: 50%; bottom: 112px; width: 240px; height: 7px; margin-left: -120px; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.2); }
+.posture > div { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; transform: translateX(-50%); background: linear-gradient(90deg, #ff8a1f, #ffd24a, #ff8a1f); }
+.posture.high > div { background: #ff3b1f; }
+
+.weapon { position: absolute; right: 20px; bottom: 24px; text-align: right; }
+.weapon .name { font-size: 20px; font-weight: 700; letter-spacing: 2px; }
+.weapon .slots { font-size: 12px; opacity: .7; margin-top: 4px; }
+.weapon .slots b { color: #ffcf4a; }
+.mode { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; background: rgba(0,0,0,.5); padding: 4px 10px; white-space: nowrap; }
+.mode b { color: #ffcf4a; }
+
+.aimdir { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; display: none; align-items: center; justify-content: center; font-size: 26px; color: #fff; text-shadow: 0 0 6px #000; }
+.aimdir.on { display: flex; }
+.aimdir.heavy { color: #ffb24a; }
+.riposte { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-weight: 800; letter-spacing: 4px; color: #9fdcff; text-shadow: 0 0 10px #4fb4ff; display: none; }
+.riposte.on { display: block; }
+.state { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-weight: 800; letter-spacing: 3px; color: #ff6a4a; display: none; }
+.state.on { display: block; }
+
+.flash { position: absolute; inset: 0; opacity: 0; }
+.flash.parry { box-shadow: inset 0 0 120px 30px rgba(255,255,230,.9); }
+.flash.hurt { box-shadow: inset 0 0 160px 50px rgba(200,0,0,.9); }
+.flash.heal { box-shadow: inset 0 0 120px 20px rgba(80,255,140,.55); }
+
+.target { position: absolute; width: 120px; margin-left: -60px; display: none; }
+.target.on { display: block; }
+.target .bar { height: 6px; }
+.target .posture-mini { height: 4px; margin-top: 3px; background: rgba(0,0,0,.5); position: relative; }
+.target .posture-mini > div { position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%); background: #ffb24a; }
+.target .prompt { margin-top: 6px; text-align: center; font-weight: 800; color: #ff3030; text-shadow: 0 0 8px #000; letter-spacing: 2px; font-size: 13px; display: none; }
+.target .prompt.on { display: block; }
+
+.warn { position: absolute; left: 50%; top: 50%; width: 0; height: 0; display: none; }
+.warn.on { display: block; }
+.warn > div { position: absolute; left: -14px; top: -190px; width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-bottom: 26px solid #ffcf2a; filter: drop-shadow(0 0 6px #000); }
+.warn.red > div { border-bottom-color: #ff2a2a; }
+
+.dead { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(40,0,0,.45); font-size: 64px; font-weight: 800; letter-spacing: 12px; color: #d8242c; text-shadow: 0 4px 0 #000; }
+.dead.on { display: flex; }

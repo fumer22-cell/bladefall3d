@@ -59,6 +59,9 @@ export class Player {
   groundTime = 0;
   jumpedSinceGround = false;
 
+  /** Multiplier on run speed / air control (guarding, heavy windups, stagger). */
+  speedMult = 1;
+
   /** Multiplier on dash-pip regen (hunger will lower this in Phase 6). */
   regenMult = 1;
 

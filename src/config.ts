@@ -156,7 +156,265 @@ export const TEST_ARENA = {
   SPAWN: { x: 80.5, y: 4, z: 80.5 },
 } as const;
 
-/** Default key bindings (KeyboardEvent.code). */
+export const COMBAT = {
+  PLAYER_MAX_HEALTH: 100,
+  PLAYER_MAX_POSTURE: 100,
+
+  // --- Attack input ---
+  /** Holding attack this long turns the swing into a heavy. A release before this is a light. */
+  HEAVY_HOLD_TIME: 0.16,
+  /** Mouse movement (px) during windup needed to pick a direction; less uses the combo's default. */
+  AIM_DIR_THRESHOLD: 18,
+  /** Fraction of recovery after which a new light attack cancels into the next combo step. */
+  COMBO_CANCEL_FRACTION: 0.35,
+  /** Combo resets if you don't attack again within this time after recovery. */
+  COMBO_RESET_TIME: 0.45,
+  /** Feinting a heavy costs this much of your own posture. */
+  FEINT_POSTURE_COST: 6,
+  FEINT_RECOVERY: 0.12,
+  /** Horizontal movement speed multiplier while guarding. */
+  GUARD_MOVE_MULT: 0.6,
+  /** Movement multiplier during a heavy windup. */
+  HEAVY_WINDUP_MOVE_MULT: 0.85,
+
+  // --- Direction modifiers (damage / posture multipliers, arc sizes) ---
+  DIR: {
+    slashL: { damage: 1, posture: 1, arcH: 65, arcV: 45, reachBonus: 0 },
+    slashR: { damage: 1, posture: 1, arcH: 65, arcV: 45, reachBonus: 0 },
+    overhead: { damage: 1.15, posture: 1.35, arcH: 25, arcV: 70, reachBonus: 0 },
+    stab: { damage: 0.9, posture: 0.8, arcH: 16, arcV: 20, reachBonus: 0.6 },
+  },
+
+  // --- Parry / guard ---
+  /** Perfect-parry window after pressing block (s). Multiplied by the weapon's parryWindowMult. */
+  PERFECT_PARRY_WINDOW: 0.15,
+  /** A parry press that deflects nothing makes the next press guard-only for this long (anti-mash). */
+  PARRY_SPAM_LOCKOUT: 0.35,
+  /** Guarded hits: damage taken multiplier. */
+  GUARD_DAMAGE_MULT: 0.25,
+  /** Guarded hits: posture damage multiplier on YOU. */
+  GUARD_POSTURE_MULT: 1.0,
+  /** Unguarded hits still hurt your posture a bit. */
+  HIT_POSTURE_MULT: 0.4,
+  /** Enemy posture damage from your perfect parry = their attack posture × this + base. */
+  PARRY_POSTURE_MULT: 1.6,
+  PARRY_POSTURE_BASE: 10,
+  /** Dash pips refunded by a perfect parry. */
+  PARRY_DASH_REFUND: 1,
+  /** Window after a perfect parry in which your next attack is a riposte. */
+  RIPOSTE_WINDOW: 0.7,
+  /** Riposte windup is shortened by this factor. */
+  RIPOSTE_WINDUP_MULT: 0.6,
+  RIPOSTE_POSTURE_MULT: 2,
+  /** Being parried stuns you for this long. */
+  PARRIED_RECOIL_TIME: 0.45,
+  /** Posture damage you take when an enemy parries you = your attack's posture × this. */
+  PARRIED_POSTURE_MULT: 1.2,
+
+  // --- Posture ---
+  POSTURE_REGEN_DELAY: 0.9,
+  /** Posture recovered per second (fraction of max). */
+  POSTURE_REGEN_RATE: 0.12,
+  POSTURE_REGEN_GUARD_MULT: 0.3,
+  /** Player posture regens faster if you landed a hit recently (aggression rewarded). */
+  POSTURE_REGEN_AGGRO_MULT: 1.8,
+  AGGRO_WINDOW: 1.5,
+  /** Enemy posture regen scales down with lost health: rate × lerp(this, 1, healthFraction). */
+  POSTURE_REGEN_LOW_HEALTH_MULT: 0.3,
+  PLAYER_STAGGER_TIME: 1.0,
+  ENEMY_STAGGER_TIME: 2.6,
+  /** Hits on a staggered (non-deathblow) target deal extra damage. */
+  STAGGERED_DAMAGE_MULT: 1.5,
+
+  // --- Deathblow ---
+  DEATHBLOW_RANGE: 3.2,
+  DEATHBLOW_TIME: 0.75,
+  DEATHBLOW_TIMESCALE: 0.4,
+  DEATHBLOW_HITSTOP: 0.14,
+  DEATHBLOW_FOV_ZOOM: 22,
+  /** Distance the player lunges to during a deathblow. */
+  DEATHBLOW_LUNGE_DIST: 1.4,
+
+  // --- Blood healing ---
+  BLOOD_HEAL_RADIUS: 4,
+  /** Health healed per point of damage dealt, when within the radius. */
+  BLOOD_HEAL_PER_DAMAGE: 0.3,
+  BLOOD_KILL_HEAL: 30,
+
+  // --- Game feel ---
+  HITSTOP_LIGHT: 0.035,
+  HITSTOP_HEAVY: 0.075,
+  HITSTOP_CRIT: 0.11,
+  HITSTOP_PARRY: 0.09,
+  HITSTOP_GUARD: 0.03,
+  HITSTOP_PLAYER_HIT: 0.06,
+  SHAKE_HIT: 0.12,
+  SHAKE_HEAVY: 0.25,
+  SHAKE_PARRY: 0.3,
+  SHAKE_PLAYER_HIT: 0.45,
+  SHAKE_DEATHBLOW: 0.6,
+  /** Knockback speed applied to targets you hit (× weapon knockback). */
+  KNOCKBACK: 4,
+  /** Knockback speed applied to the player when hit. */
+  PLAYER_KNOCKBACK: 9,
+  /** Off-screen warning shows for attackers more than this many degrees from view center. */
+  OFFSCREEN_WARN_ANGLE: 50,
+  RESPAWN_DELAY: 2,
+} as const;
+
+export type AttackDir = 'slashL' | 'slashR' | 'overhead' | 'stab';
+
+export interface AttackDef {
+  windup: number;
+  active: number;
+  recovery: number;
+  damage: number;
+  posture: number;
+}
+
+export interface WeaponDef {
+  name: string;
+  model: 'sword' | 'greatsword' | 'daggers' | 'spear' | 'gauntlets';
+  reach: number;
+  light: AttackDef[];
+  /** Default direction for each light combo step when the mouse barely moves. */
+  lightDirs: AttackDir[];
+  heavy: AttackDef;
+  heavyDir: AttackDir;
+  parryWindowMult: number;
+  /** Damage multiplier on ripostes. */
+  riposteMult: number;
+  knockback: number;
+  /** Two-handed viewmodels (daggers, gauntlets) alternate hands on combo steps. */
+  dualWield: boolean;
+}
+
+const atk = (windup: number, active: number, recovery: number, damage: number, posture: number): AttackDef => ({
+  windup, active, recovery, damage, posture,
+});
+
+export const WEAPONS: WeaponDef[] = [
+  {
+    name: 'Sword', model: 'sword', reach: 2.7,
+    light: [atk(0.2, 0.1, 0.26, 12, 10), atk(0.18, 0.1, 0.26, 12, 10), atk(0.24, 0.12, 0.34, 16, 14)],
+    lightDirs: ['slashR', 'slashL', 'overhead'],
+    heavy: atk(0.5, 0.13, 0.42, 30, 32), heavyDir: 'overhead',
+    parryWindowMult: 1, riposteMult: 2.5, knockback: 1, dualWield: false,
+  },
+  {
+    name: 'Greatsword', model: 'greatsword', reach: 3.1,
+    light: [atk(0.36, 0.15, 0.42, 22, 26), atk(0.34, 0.15, 0.46, 24, 30)],
+    lightDirs: ['slashR', 'slashL'],
+    heavy: atk(0.8, 0.17, 0.6, 52, 75), heavyDir: 'overhead',
+    parryWindowMult: 0.9, riposteMult: 2.5, knockback: 1.8, dualWield: false,
+  },
+  {
+    name: 'Daggers', model: 'daggers', reach: 2.0,
+    light: [atk(0.1, 0.07, 0.13, 6, 3), atk(0.1, 0.07, 0.13, 6, 3), atk(0.1, 0.07, 0.13, 6, 3), atk(0.12, 0.08, 0.2, 9, 5)],
+    lightDirs: ['slashR', 'slashL', 'stab', 'stab'],
+    heavy: atk(0.3, 0.1, 0.3, 16, 8), heavyDir: 'stab',
+    parryWindowMult: 1.15, riposteMult: 3, knockback: 0.4, dualWield: true,
+  },
+  {
+    name: 'Spear', model: 'spear', reach: 3.6,
+    light: [atk(0.22, 0.1, 0.3, 11, 8), atk(0.22, 0.1, 0.3, 11, 8), atk(0.26, 0.12, 0.36, 14, 12)],
+    lightDirs: ['stab', 'stab', 'slashR'],
+    heavy: atk(0.55, 0.13, 0.45, 27, 24), heavyDir: 'stab',
+    parryWindowMult: 0.9, riposteMult: 2.2, knockback: 1.2, dualWield: false,
+  },
+  {
+    name: 'Gauntlets', model: 'gauntlets', reach: 1.8,
+    light: [atk(0.12, 0.08, 0.15, 7, 9), atk(0.12, 0.08, 0.15, 7, 9), atk(0.16, 0.09, 0.24, 10, 14)],
+    lightDirs: ['stab', 'stab', 'overhead'],
+    heavy: atk(0.4, 0.11, 0.35, 18, 32), heavyDir: 'overhead',
+    parryWindowMult: 0.5, riposteMult: 5, knockback: 1.5, dualWield: true,
+  },
+];
+
+export interface EnemyAttackDef {
+  name: string;
+  windup: number;
+  active: number;
+  recovery: number;
+  damage: number;
+  posture: number;
+  reach: number;
+  /** Half-angle of the hit cone in front of the attacker (deg). */
+  arc: number;
+  /** Red telegraph: can't be parried or guarded. */
+  unblockable: boolean;
+  /** If set, only hits targets whose feet are below attackerFeet + this (jumpable sweep). */
+  maxHitHeight?: number;
+}
+
+export const DUMMY = {
+  MAX_HEALTH: 300,
+  MAX_POSTURE: 100,
+  WIDTH: 0.8,
+  HEIGHT: 2.0,
+  TURN_RATE: 5,
+  FRICTION: 30,
+  RESPAWN_TIME: 2.2,
+  /** Melee modes attack when the player is within this range. */
+  AGGRO_RANGE: 4.5,
+  ATTACK_COOLDOWN_MIN: 0.7,
+  ATTACK_COOLDOWN_MAX: 1.5,
+  /** Chance of a follow-up swing after an attack (combo). */
+  COMBO_CHANCE: 0.35,
+  /** In mixed mode. */
+  UNBLOCKABLE_CHANCE: 0.3,
+  FEINT_CHANCE: 0.25,
+  /** A feint cancels at this fraction of the windup. */
+  FEINT_AT: 0.6,
+  /** Recoil after being perfect-parried. */
+  PARRIED_RECOIL: 0.9,
+  /** Parrier mode: reaction time before it raises a parry against your windup. */
+  PARRY_REACTION: 0.17,
+  PARRY_WINDOW: 0.2,
+  /** Vulnerable time after a parry attempt that deflected nothing. */
+  PARRY_WHIFF_RECOVERY: 0.55,
+  SHOOT_RANGE: 40,
+  SHOOT_WINDUP: 0.55,
+  SHOOT_COOLDOWN: 1.2,
+  ATTACKS: {
+    swing: { name: 'swing', windup: 0.55, active: 0.1, recovery: 0.45, damage: 14, posture: 20, reach: 3.3, arc: 70, unblockable: false },
+    quick: { name: 'quick', windup: 0.32, active: 0.1, recovery: 0.4, damage: 10, posture: 14, reach: 3.3, arc: 70, unblockable: false },
+    sweep: { name: 'sweep', windup: 0.75, active: 0.12, recovery: 0.6, damage: 24, posture: 30, reach: 3.6, arc: 110, unblockable: true, maxHitHeight: 0.9 },
+  } satisfies Record<string, EnemyAttackDef>,
+} as const;
+
+export const PROJECTILE = {
+  SPEED: 16,
+  RADIUS: 0.18,
+  DAMAGE: 12,
+  POSTURE: 15,
+  LIFETIME: 5,
+  /** Reflected projectiles fly this much faster and deal this damage multiplier. */
+  REFLECT_SPEED_MULT: 1.8,
+  REFLECT_DAMAGE_MULT: 2,
+  /** A perfect parry catches projectiles within this distance of your eyes. */
+  PARRY_REACH: 2.2,
+} as const;
+
+export const PARTICLES = {
+  MAX: 3000,
+  GRAVITY: 18,
+  BLOOD_PER_DAMAGE: 1.2,
+  BLOOD_MAX_BURST: 60,
+  SPARKS_PARRY: 40,
+  SPARKS_GUARD: 14,
+} as const;
+
+export const VIEWMODEL = {
+  SWAY_AMOUNT: 0.0009,
+  SWAY_MAX: 0.08,
+  SWAY_RETURN: 10,
+  BOB_AMOUNT: 0.02,
+  RECOIL_HIT: 0.07,
+  RECOIL_RETURN: 14,
+} as const;
+
+/** Default key bindings (KeyboardEvent.code; mouse buttons are Mouse0 = left, Mouse2 = right). */
 export const KEYS = {
   forward: ['KeyW', 'ArrowUp'],
   back: ['KeyS', 'ArrowDown'],
@@ -166,6 +424,17 @@ export const KEYS = {
   dash: ['ShiftLeft', 'ShiftRight'],
   // Ctrl is omitted on purpose: Ctrl+W closes the browser tab.
   crouch: ['KeyC', 'KeyX'],
+  attack: ['Mouse0'],
+  block: ['Mouse2'],
+  feint: ['KeyQ'],
+  interact: ['KeyF'],
+  weapon1: ['Digit1'],
+  weapon2: ['Digit2'],
+  weapon3: ['Digit3'],
+  weapon4: ['Digit4'],
+  weapon5: ['Digit5'],
+  dummyMode: ['KeyG'],
+  dummyReset: ['KeyH'],
   reset: ['KeyR'],
   debug: ['F3'],
   slowmo: ['KeyT'],

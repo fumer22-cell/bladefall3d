@@ -2,6 +2,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  DirectionalLight,
+  FogExp2,
+  HemisphereLight,
   Mesh,
   PerspectiveCamera,
   Scene,
@@ -29,6 +32,13 @@ export class Renderer {
     container.appendChild(this.gl.domElement);
 
     this.scene.background = new Color(WORLD.SKY_COLOR);
+    this.scene.fog = new FogExp2(WORLD.SKY_COLOR, WORLD.FOG_DENSITY);
+    // Lights for box-model entities (voxels use their own shader).
+    this.scene.add(new HemisphereLight(0xdfe8ff, 0x4a3f2e, 1.8));
+    const sun = new DirectionalLight(0xffffff, 1.6);
+    sun.position.set(0.5, 1, 0.3);
+    this.scene.add(sun);
+    this.gl.autoClear = false;
     this.camera = new PerspectiveCamera(CAMERA.BASE_FOV, window.innerWidth / window.innerHeight, CAMERA.NEAR, CAMERA.FAR);
     this.camera.rotation.order = 'YXZ';
     this.material = createVoxelMaterial();
@@ -73,7 +83,13 @@ export class Renderer {
     world.dirty.clear();
   }
 
-  render(): void {
+  /** Render the world, then `overlay` (the first-person viewmodel) on top with a fresh depth buffer. */
+  render(overlay?: Scene): void {
+    this.gl.clear();
     this.gl.render(this.scene, this.camera);
+    if (overlay) {
+      this.gl.clearDepth();
+      this.gl.render(overlay, this.camera);
+    }
   }
 }

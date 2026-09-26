@@ -6,7 +6,10 @@ for (const [action, codes] of Object.entries(KEYS) as [Action, readonly string[]
 }
 
 /** Actions handled per rendered frame rather than per sim step. */
-const UI_ACTIONS = new Set<Action>(['reset', 'debug', 'slowmo']);
+const UI_ACTIONS = new Set<Action>([
+  'reset', 'debug', 'slowmo', 'dummyMode', 'dummyReset',
+  'weapon1', 'weapon2', 'weapon3', 'weapon4', 'weapon5',
+]);
 
 /**
  * Keyboard + mouse input with pointer lock.
@@ -33,6 +36,21 @@ export class Input {
       if (action) this.held.delete(action);
     });
     window.addEventListener('blur', () => this.held.clear());
+    document.addEventListener('mousedown', (e) => {
+      if (!this.locked) return;
+      const action = codeToAction.get(`Mouse${e.button}`);
+      if (!action) return;
+      e.preventDefault();
+      this.pressed.add(action);
+      this.held.add(action);
+    });
+    document.addEventListener('mouseup', (e) => {
+      const action = codeToAction.get(`Mouse${e.button}`);
+      if (action) this.held.delete(action);
+    });
+    document.addEventListener('contextmenu', (e) => {
+      if (this.locked) e.preventDefault();
+    });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
       this.mouseDX += e.movementX;

@@ -47,7 +47,7 @@ export class CameraRig {
     this.trauma = clamp(this.trauma + amount, 0, 1);
   }
 
-  update(camera: PerspectiveCamera, p: Player, alpha: number, dt: number, strafe: number): void {
+  update(camera: PerspectiveCamera, p: Player, alpha: number, dt: number, strafe: number, zoom = 0): void {
     this.time += dt;
 
     // Position (interpolated between sim steps).
@@ -62,6 +62,7 @@ export class CameraRig {
     if (p.state === 'dash') fovTarget += CAMERA.DASH_FOV_KICK;
     else if (p.state === 'slide') fovTarget += CAMERA.SLIDE_FOV_KICK;
     else if (p.state === 'slam') fovTarget += CAMERA.SLAM_FOV_KICK;
+    fovTarget -= zoom;
     this.fov = damp(this.fov, fovTarget, CAMERA.FOV_BLEND_RATE, dt);
 
     // Roll.
